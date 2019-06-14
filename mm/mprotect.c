@@ -82,6 +82,10 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 				struct page *page;
 				int nid;
 
+				/* Avoid TLB flush if possible */
+				if (pte_protnone(oldpte))
+					continue;
+
 				page = vm_normal_page(vma, addr, oldpte);
 				if (!page || PageKsm(page))
 					continue;
@@ -97,10 +101,6 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 				 * context.
 				 */
 				if (page_is_file_cache(page) && PageDirty(page))
-					continue;
-
-				/* Avoid TLB flush if possible */
-				if (pte_protnone(oldpte))
 					continue;
 
 				/*
