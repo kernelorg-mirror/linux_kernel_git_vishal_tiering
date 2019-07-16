@@ -1456,6 +1456,9 @@ bool should_numa_migrate_memory(struct task_struct *p, struct page * page,
 
 		threshold = msecs_to_jiffies(
 			sysctl_numa_balancing_hot_threshold);
+		if (flags & TNF_WRITE)
+			threshold *= 2;
+
 		i = READ_ONCE(mm->numa_scan_idx);
 		i = i ? i - 1 : NUMA_SCAN_NR_HIST - 1;
 		/*
