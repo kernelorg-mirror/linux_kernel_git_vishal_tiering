@@ -1450,6 +1450,9 @@ vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf)
 	if (!was_writable)
 		flags |= TNF_NO_GROUP;
 
+	if (vmf->flags & FAULT_FLAG_WRITE)
+		flags |= TNF_WRITE;
+
 	page_nid = page_to_nid(page);
 	if (node_is_toptier(page_nid))
 		last_cpupid = page_cpupid_last(page);

@@ -39,6 +39,7 @@ enum migrate_reason {
 
 /* promote_file_page() flags */
 #define PFP_LOCKED		0x1
+#define PFP_WRITE		0x2
 
 extern const char *migrate_reason_names[MR_TYPES];
 

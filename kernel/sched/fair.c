@@ -1081,6 +1081,12 @@ unsigned int sysctl_numa_balancing_rate_limit = 65536;
  * memory binding policy
  */
 unsigned int sysctl_numa_balancing_force_enable;
+/*
+ * The read/write performance of the slow memory may be different, so it may be
+ * better to use different threshold for memory read and write.  This may be
+ * workload specific too.
+ */
+unsigned int sysctl_numa_balancing_write_bias = 2;
 
 struct numa_group {
 	refcount_t refcount;
@@ -1540,7 +1546,7 @@ static void numa_migration_adjust_threshold(struct pglist_data *pgdat,
 }
 
 bool should_numa_migrate_memory(struct task_struct *p, struct page * page,
-				int src_nid, int dst_cpu)
+				int src_nid, int dst_cpu, int flags)
 {
 	struct numa_group *ng = deref_curr_numa_group(p);
 	int dst_nid = cpu_to_node(dst_cpu);
@@ -1568,6 +1574,8 @@ bool should_numa_migrate_memory(struct task_struct *p, struct page * page,
 		numa_migration_adjust_threshold(pgdat, rate_limit, def_th);
 
 		th = pgdat->numa_threshold ? : def_th;
+		if (flags & TNF_WRITE)
+			th *= sysctl_numa_balancing_write_bias;
 		latency = numa_hint_fault_latency(page);
 		if (latency > th)
 			return false;
