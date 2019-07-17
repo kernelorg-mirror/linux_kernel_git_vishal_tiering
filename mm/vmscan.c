@@ -2422,6 +2422,7 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 		goto out;
 	}
 
+#if 0
 	/*
 	 * If there is enough inactive page cache, we do not reclaim
 	 * anything from the anonymous working right now.
@@ -2430,6 +2431,7 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 		scan_balance = SCAN_FILE;
 		goto out;
 	}
+#endif
 
 	scan_balance = SCAN_FRACT;
 	/*
