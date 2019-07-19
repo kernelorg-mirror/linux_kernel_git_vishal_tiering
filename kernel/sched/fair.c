@@ -1443,6 +1443,7 @@ bool should_numa_migrate_memory(struct task_struct *p, struct page * page,
 		struct mm_struct *mm = p->mm;
 		unsigned long now = jiffies, last_jiffies, tj;
 		unsigned long try_migrate, rate_limit, threshold;
+		unsigned long last_threshold_jiffies;
 		unsigned long start, end;
 		int i, j;
 
@@ -1454,8 +1455,44 @@ bool should_numa_migrate_memory(struct task_struct *p, struct page * page,
 		if (!(flags & TNF_YOUNG))
 			return false;
 
-		threshold = msecs_to_jiffies(
-			sysctl_numa_balancing_hot_threshold);
+		rate_limit = sysctl_numa_balancing_rate_limit << (20 - PAGE_SHIFT);
+		/* Default rate limit is high watermark size per second */
+		if (!rate_limit)
+			rate_limit = pgdat_wmark_pages(pgdat, WMARK_HIGH);
+		last_threshold_jiffies = pgdat->autonuma_threshold_jiffies;
+		if (now > last_threshold_jiffies +
+			   msecs_to_jiffies(sysctl_numa_balancing_scan_period_max) &&
+			   cmpxchg(&pgdat->autonuma_threshold_jiffies,
+				   last_threshold_jiffies, now) ==
+			   last_threshold_jiffies) {
+			unsigned long ref_threshold, unit_threshold;
+			unsigned long ref_try_migrate, mdiff;
+
+			ref_try_migrate = rate_limit;
+			ref_try_migrate = ref_try_migrate * \
+				sysctl_numa_balancing_scan_period_max / 1000;
+			try_migrate = node_page_state(pgdat, NUMA_TRY_MIGRATE);
+			mdiff = try_migrate - pgdat->autonuma_threshold_try_migrate;
+			ref_threshold = msecs_to_jiffies(
+				sysctl_numa_balancing_hot_threshold);
+			unit_threshold = ref_threshold / 16;
+			threshold = pgdat->autonuma_threshold;
+			if (!threshold)
+				threshold = ref_threshold;
+			if (mdiff > ref_try_migrate * 11 / 10)
+				threshold = max(threshold - unit_threshold,
+						unit_threshold);
+			else if (mdiff < ref_try_migrate * 9 / 10)
+				threshold = min(threshold + unit_threshold,
+						ref_threshold);
+			pgdat->autonuma_threshold_try_migrate = try_migrate;
+			pgdat->autonuma_threshold = threshold;
+		}
+
+		threshold = pgdat->autonuma_threshold;
+		if (!threshold)
+			threshold = msecs_to_jiffies(
+				sysctl_numa_balancing_hot_threshold);
 		if (flags & TNF_WRITE)
 			threshold *= 2;
 
@@ -1485,10 +1522,6 @@ bool should_numa_migrate_memory(struct task_struct *p, struct page * page,
 		}
 		/* The tracking window isn't large enough, assume page is hot */
 pass:
-		rate_limit = sysctl_numa_balancing_rate_limit << (20 - PAGE_SHIFT);
-		/* Default rate limit is high watermark size per second */
-		if (!rate_limit)
-			rate_limit = pgdat_wmark_pages(pgdat, WMARK_HIGH);
 		inc_node_state(pgdat, NUMA_TRY_MIGRATE);
 		try_migrate = node_page_state(pgdat, NUMA_TRY_MIGRATE);
 		last_jiffies = pgdat->autonuma_jiffies;
