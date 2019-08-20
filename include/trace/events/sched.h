@@ -51,6 +51,42 @@ TRACE_EVENT(sched_kthread_stop_ret,
 	TP_printk("ret=%d", __entry->ret)
 );
 
+TRACE_EVENT(autonuma_threshold,
+
+	TP_PROTO(int nid,
+		 long nr_page,
+		 long nr,
+		 long hot_threshold,
+		 long cold_threshold,
+		 long ref_threshold),
+
+	TP_ARGS(nid, nr_page, nr, hot_threshold, cold_threshold, ref_threshold),
+
+	TP_STRUCT__entry(
+		__field(	int,	nid	)
+		__field(	long,	nr_page	)
+		__field(	long,	nr	)
+		__field(	long,	hot_threshold	)
+		__field(	long,	cold_threshold	)
+		__field(	long,	ref_threshold	)
+	),
+
+	TP_fast_assign(
+		__entry->nid = nid;
+		__entry->nr_page	= nr_page;
+		__entry->nr	= nr;
+		__entry->hot_threshold = hot_threshold;
+		__entry->cold_threshold = cold_threshold;
+		__entry->ref_threshold = ref_threshold;
+	),
+
+	TP_printk("nid=%d nr_page=%ld nr=%ld hot_threshold=%ld cold_threshold=%ld ref_threshold=%ld",
+		  __entry->nid, __entry->nr_page, __entry->nr,
+		  __entry->hot_threshold, __entry->cold_threshold,
+		  __entry->ref_threshold
+		)
+);
+
 /*
  * Tracepoint for waking up a task:
  */
