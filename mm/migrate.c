@@ -2335,18 +2335,16 @@ int migrate_misplaced_transhuge_page(struct mm_struct *mm,
 	if (is_shared_exec_page(vma, page))
 		goto out;
 
+	isolated = numamigrate_isolate_page(pgdat, page);
+	if (!isolated)
+		goto out_fail;
+
 	new_page = alloc_pages_node(node,
 		(GFP_TRANSHUGE_LIGHT | __GFP_THISNODE),
 		HPAGE_PMD_ORDER);
 	if (!new_page)
 		goto out_fail;
 	prep_transhuge_page(new_page);
-
-	isolated = numamigrate_isolate_page(pgdat, page);
-	if (!isolated) {
-		put_page(new_page);
-		goto out_fail;
-	}
 
 	/* Prepare a page as a migration target */
 	__SetPageLocked(new_page);
@@ -2374,12 +2372,6 @@ int migrate_misplaced_transhuge_page(struct mm_struct *mm,
 
 		unlock_page(new_page);
 		put_page(new_page);		/* Free it */
-
-		/* Retake the callers reference and putback on LRU */
-		get_page(page);
-		putback_lru_page(page);
-		mod_node_page_state(page_pgdat(page),
-			 NR_ISOLATED_ANON + page_lru, -HPAGE_PMD_NR);
 
 		goto out_unlock;
 	}
@@ -2448,6 +2440,13 @@ out_fail:
 	spin_unlock(ptl);
 
 out_unlock:
+	if (isolated) {
+		/* Retake the callers reference and putback on LRU */
+		get_page(page);
+		putback_lru_page(page);
+		mod_node_page_state(page_pgdat(page),
+			 NR_ISOLATED_ANON + page_lru, -HPAGE_PMD_NR);
+	}
 	unlock_page(page);
 out:
 	put_page(page);
