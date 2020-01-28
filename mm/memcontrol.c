@@ -3603,6 +3603,7 @@ enum {
 	RES_MAX_USAGE,
 	RES_FAILCNT,
 	RES_SOFT_LIMIT,
+	RES_TOPTIER_SOFT_LIMIT,
 };
 
 static u64 mem_cgroup_read_u64(struct cgroup_subsys_state *css,
@@ -3643,6 +3644,8 @@ static u64 mem_cgroup_read_u64(struct cgroup_subsys_state *css,
 		return counter->failcnt;
 	case RES_SOFT_LIMIT:
 		return (u64)memcg->soft_limit * PAGE_SIZE;
+	case RES_TOPTIER_SOFT_LIMIT:
+		return (u64)memcg->toptier_soft_limit * PAGE_SIZE;
 	default:
 		BUG();
 	}
@@ -3879,6 +3882,14 @@ static ssize_t mem_cgroup_write(struct kernfs_open_file *of,
 		break;
 	case RES_SOFT_LIMIT:
 		memcg->soft_limit = nr_pages;
+		ret = 0;
+		break;
+	case RES_TOPTIER_SOFT_LIMIT:
+		if (mem_cgroup_is_root(memcg)) { /* Can't set limit on root */
+			ret = -EINVAL;
+			break;
+		}
+		memcg->toptier_soft_limit = nr_pages;
 		ret = 0;
 		break;
 	}
@@ -5030,6 +5041,12 @@ static struct cftype mem_cgroup_legacy_files[] = {
 		.read_u64 = mem_cgroup_read_u64,
 	},
 	{
+		.name = "toptier_soft_limit_in_bytes",
+		.private = MEMFILE_PRIVATE(_MEM, RES_TOPTIER_SOFT_LIMIT),
+		.write = mem_cgroup_write,
+		.read_u64 = mem_cgroup_read_u64,
+	},
+	{
 		.name = "failcnt",
 		.private = MEMFILE_PRIVATE(_MEM, RES_FAILCNT),
 		.write = mem_cgroup_reset,
@@ -5365,6 +5382,7 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	page_counter_set_high(&memcg->memory, PAGE_COUNTER_MAX);
 	memcg->soft_limit = PAGE_COUNTER_MAX;
 	page_counter_set_high(&memcg->swap, PAGE_COUNTER_MAX);
+	memcg->toptier_soft_limit = PAGE_COUNTER_MAX;
 	if (parent) {
 		memcg->swappiness = mem_cgroup_swappiness(parent);
 		memcg->oom_kill_disable = parent->oom_kill_disable;
