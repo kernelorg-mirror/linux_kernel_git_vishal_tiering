@@ -230,6 +230,7 @@ struct mem_cgroup {
 	struct work_struct high_work;
 
 	unsigned long soft_limit;
+	unsigned long toptier_soft_limit;
 
 	/* vmpressure notifications */
 	struct vmpressure vmpressure;
