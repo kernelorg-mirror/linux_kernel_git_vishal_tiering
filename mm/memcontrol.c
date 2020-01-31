@@ -122,6 +122,7 @@ struct mem_cgroup_tree {
 };
 
 static struct mem_cgroup_tree soft_limit_tree __read_mostly;
+static struct mem_cgroup_tree soft_limit_toptier_tree __read_mostly;
 
 /* for OOM */
 struct mem_cgroup_eventfd_list {
@@ -469,17 +470,27 @@ mem_cgroup_page_nodeinfo(struct mem_cgroup *memcg, struct page *page)
 }
 
 static struct mem_cgroup_tree_per_node *
-soft_limit_tree_node(int nid)
+soft_limit_tree_node(int nid, enum node_states type)
 {
-	return soft_limit_tree.rb_tree_per_node[nid];
+	switch (type) {
+	case N_MEMORY:
+		return soft_limit_tree.rb_tree_per_node[nid];
+	case N_TOPTIER:
+		if (node_state(nid, N_TOPTIER))
+			return soft_limit_toptier_tree.rb_tree_per_node[nid];
+		else
+			return NULL;
+	default:
+		return NULL;
+	}
 }
 
 static struct mem_cgroup_tree_per_node *
-soft_limit_tree_from_page(struct page *page)
+soft_limit_tree_from_page(struct page *page, enum node_states type)
 {
 	int nid = page_to_nid(page);
 
-	return soft_limit_tree.rb_tree_per_node[nid];
+	return soft_limit_tree_node(nid, type);
 }
 
 static void __mem_cgroup_insert_exceeded(struct mem_cgroup_per_node *mz,
@@ -540,12 +551,24 @@ static void mem_cgroup_remove_exceeded(struct mem_cgroup_per_node *mz,
 	spin_unlock_irqrestore(&mctz->lock, flags);
 }
 
-static unsigned long soft_limit_excess(struct mem_cgroup *memcg)
+static unsigned long soft_limit_excess(struct mem_cgroup *memcg, enum node_states type)
 {
-	unsigned long nr_pages = page_counter_read(&memcg->memory);
-	unsigned long soft_limit = READ_ONCE(memcg->soft_limit);
+	unsigned long nr_pages;
+	unsigned long soft_limit;
 	unsigned long excess = 0;
 
+	switch (type) {
+	case N_MEMORY:
+		nr_pages = page_counter_read(&memcg->memory);
+		soft_limit = READ_ONCE(memcg->soft_limit);
+		break;
+	case N_TOPTIER:
+		nr_pages = page_counter_read(&memcg->toptier);
+		soft_limit = READ_ONCE(memcg->toptier_soft_limit);
+		break;
+	default:
+		return 0;
+	}
 	if (nr_pages > soft_limit)
 		excess = nr_pages - soft_limit;
 
@@ -558,7 +581,7 @@ static void mem_cgroup_update_tree(struct mem_cgroup *memcg, struct page *page)
 	struct mem_cgroup_per_node *mz;
 	struct mem_cgroup_tree_per_node *mctz;
 
-	mctz = soft_limit_tree_from_page(page);
+	mctz = soft_limit_tree_from_page(page, N_MEMORY);
 	if (!mctz)
 		return;
 	/*
@@ -567,7 +590,7 @@ static void mem_cgroup_update_tree(struct mem_cgroup *memcg, struct page *page)
 	 */
 	for (; memcg; memcg = parent_mem_cgroup(memcg)) {
 		mz = mem_cgroup_page_nodeinfo(memcg, page);
-		excess = soft_limit_excess(memcg);
+		excess = soft_limit_excess(memcg, N_MEMORY);
 		/*
 		 * We have to update the tree if mz is on RB-tree or
 		 * mem is over its softlimit.
@@ -597,7 +620,7 @@ static void mem_cgroup_remove_from_trees(struct mem_cgroup *memcg)
 
 	for_each_node(nid) {
 		mz = memcg->nodeinfo[nid];
-		mctz = soft_limit_tree_node(nid);
+		mctz = soft_limit_tree_node(nid, N_MEMORY);
 		if (mctz)
 			mem_cgroup_remove_exceeded(mz, mctz);
 	}
@@ -621,7 +644,7 @@ retry:
 	 * position in the tree.
 	 */
 	__mem_cgroup_remove_exceeded(mz, mctz);
-	if (!soft_limit_excess(mz->memcg) ||
+	if (!soft_limit_excess(mz->memcg, N_MEMORY) ||
 	    !css_tryget(&mz->memcg->css))
 		goto retry;
 done:
@@ -1624,7 +1647,7 @@ static int mem_cgroup_soft_reclaim(struct mem_cgroup *root_memcg,
 		.pgdat = pgdat,
 	};
 
-	excess = soft_limit_excess(root_memcg);
+	excess = soft_limit_excess(root_memcg, N_MEMORY);
 
 	while (1) {
 		victim = mem_cgroup_iter(root_memcg, victim, &reclaim);
@@ -1653,7 +1676,7 @@ static int mem_cgroup_soft_reclaim(struct mem_cgroup *root_memcg,
 		total += mem_cgroup_shrink_node(victim, gfp_mask, false,
 					pgdat, &nr_scanned);
 		*total_scanned += nr_scanned;
-		if (!soft_limit_excess(root_memcg))
+		if (!soft_limit_excess(root_memcg, N_MEMORY))
 			break;
 	}
 	mem_cgroup_iter_break(root_memcg, victim);
@@ -3278,7 +3301,7 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 	if (order > 0)
 		return 0;
 
-	mctz = soft_limit_tree_node(pgdat->node_id);
+	mctz = soft_limit_tree_node(pgdat->node_id, N_MEMORY);
 
 	/*
 	 * Do not even bother to check the largest node if the root
@@ -3297,7 +3320,7 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 	if (migration_nid != -1) {
 		struct mem_cgroup_tree_per_node *mmctz;
 
-		mmctz = soft_limit_tree_node(migration_nid);
+		mmctz = soft_limit_tree_node(migration_nid, N_MEMORY);
 		if (mmctz && !RB_EMPTY_ROOT(&mmctz->rb_root)) {
 			pgdat = NODE_DATA(migration_nid);
 			return mem_cgroup_soft_limit_reclaim(pgdat, order,
@@ -3334,7 +3357,7 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 		if (!reclaimed)
 			next_mz = __mem_cgroup_largest_soft_limit_node(mctz);
 
-		excess = soft_limit_excess(mz->memcg);
+		excess = soft_limit_excess(mz->memcg, N_MEMORY);
 		/*
 		 * One school of thought says that we should not add
 		 * back the node to the tree if reclaim returns 0.
@@ -7056,6 +7079,19 @@ static int __init mem_cgroup_init(void)
 		rtpn->rb_rightmost = NULL;
 		spin_lock_init(&rtpn->lock);
 		soft_limit_tree.rb_tree_per_node[node] = rtpn;
+
+		if (!node_state(node, N_TOPTIER)) {
+			soft_limit_toptier_tree.rb_tree_per_node[node] = NULL;
+			continue;
+		}
+
+		rtpn = kzalloc_node(sizeof(*rtpn), GFP_KERNEL,
+				    node_online(node) ? node : NUMA_NO_NODE);
+
+		rtpn->rb_root = RB_ROOT;
+		rtpn->rb_rightmost = NULL;
+		spin_lock_init(&rtpn->lock);
+		soft_limit_toptier_tree.rb_tree_per_node[node] = rtpn;
 	}
 
 	return 0;
