@@ -124,6 +124,15 @@ struct mem_cgroup_per_node {
 	unsigned long		usage_in_excess;/* Set to the value by which */
 						/* the soft limit is exceeded*/
 	bool			on_tree;
+
+	struct rb_node		toptier_tree_node;	 /* RB tree node */
+	unsigned long		toptier_usage_in_excess; /* Set to the value by which */
+						         /* the soft limit is exceeded*/
+	bool			on_toptier_tree;
+
+	bool			congested;	/* memcg has many dirty pages */
+						/* backed by a congested BDI */
+
 	struct mem_cgroup	*memcg;		/* Back pointer, we cannot */
 						/* use container_of	   */
 };
