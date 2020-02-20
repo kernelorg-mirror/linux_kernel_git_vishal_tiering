@@ -161,9 +161,11 @@ void vm_events_fold_cpu(int cpu)
  * vm_stat contains the global counters
  */
 atomic_long_t vm_zone_stat[NR_VM_ZONE_STAT_ITEMS] __cacheline_aligned_in_smp;
+atomic_long_t vm_toptier_zone_stat[NR_VM_ZONE_STAT_ITEMS] __cacheline_aligned_in_smp;
 atomic_long_t vm_numa_stat[NR_VM_NUMA_STAT_ITEMS] __cacheline_aligned_in_smp;
 atomic_long_t vm_node_stat[NR_VM_NODE_STAT_ITEMS] __cacheline_aligned_in_smp;
 EXPORT_SYMBOL(vm_zone_stat);
+EXPORT_SYMBOL(vm_toptier_zone_stat);
 EXPORT_SYMBOL(vm_numa_stat);
 EXPORT_SYMBOL(vm_node_stat);
 
@@ -695,7 +697,7 @@ EXPORT_SYMBOL(dec_node_page_state);
  * Returns the number of counters updated.
  */
 #ifdef CONFIG_NUMA
-static int fold_diff(int *zone_diff, int *numa_diff, int *node_diff)
+static int fold_diff(int *zone_diff, int *numa_diff, int *node_diff, int *toptier_diff)
 {
 	int i;
 	int changes = 0;
@@ -716,6 +718,11 @@ static int fold_diff(int *zone_diff, int *numa_diff, int *node_diff)
 		if (node_diff[i]) {
 			atomic_long_add(node_diff[i], &vm_node_stat[i]);
 			changes++;
+	}
+
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
+		if (toptier_diff[i]) {
+			atomic_long_add(toptier_diff[i], &vm_toptier_zone_stat[i]);
 	}
 	return changes;
 }
@@ -762,6 +769,7 @@ static int refresh_cpu_vm_stats(bool do_pagesets)
 	struct zone *zone;
 	int i;
 	int global_zone_diff[NR_VM_ZONE_STAT_ITEMS] = { 0, };
+	int global_toptier_diff[NR_VM_ZONE_STAT_ITEMS] = { 0, };
 #ifdef CONFIG_NUMA
 	int global_numa_diff[NR_VM_NUMA_STAT_ITEMS] = { 0, };
 #endif
@@ -779,6 +787,9 @@ static int refresh_cpu_vm_stats(bool do_pagesets)
 
 				atomic_long_add(v, &zone->vm_stat[i]);
 				global_zone_diff[i] += v;
+				if (node_state(zone->zone_pgdat->node_id, N_TOPTIER)) {
+					global_toptier_diff[i] +=v;
+				}
 #ifdef CONFIG_NUMA
 				/* 3 seconds idle till flush */
 				__this_cpu_write(p->expire, 3);
@@ -846,7 +857,7 @@ static int refresh_cpu_vm_stats(bool do_pagesets)
 
 #ifdef CONFIG_NUMA
 	changes += fold_diff(global_zone_diff, global_numa_diff,
-			     global_node_diff);
+			     global_node_diff, global_toptier_diff);
 #else
 	changes += fold_diff(global_zone_diff, global_node_diff);
 #endif
@@ -868,6 +879,7 @@ void cpu_vm_stats_fold(int cpu)
 	int global_numa_diff[NR_VM_NUMA_STAT_ITEMS] = { 0, };
 #endif
 	int global_node_diff[NR_VM_NODE_STAT_ITEMS] = { 0, };
+	int global_toptier_diff[NR_VM_NODE_STAT_ITEMS] = { 0, };
 
 	for_each_populated_zone(zone) {
 		struct per_cpu_pageset *p;
@@ -910,11 +922,13 @@ void cpu_vm_stats_fold(int cpu)
 				p->vm_node_stat_diff[i] = 0;
 				atomic_long_add(v, &pgdat->vm_stat[i]);
 				global_node_diff[i] += v;
+				if (node_state(pgdat->node_id, N_TOPTIER))
+					global_toptier_diff[i] +=v;
 			}
 	}
 
 #ifdef CONFIG_NUMA
-	fold_diff(global_zone_diff, global_numa_diff, global_node_diff);
+	fold_diff(global_zone_diff, global_numa_diff, global_node_diff, global_toptier_diff);
 #else
 	fold_diff(global_zone_diff, global_node_diff);
 #endif
