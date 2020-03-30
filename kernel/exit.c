@@ -803,6 +803,9 @@ void __noreturn do_exit(long code)
 	if (group_dead)
 		disassociate_ctty(1);
 	exit_task_namespaces(tsk);
+#ifdef CONFIG_NUMA_BALANCING
+	cancel_work_sync(&tsk->numa_async_work);
+#endif
 	exit_task_work(tsk);
 	exit_thread(tsk);
 
