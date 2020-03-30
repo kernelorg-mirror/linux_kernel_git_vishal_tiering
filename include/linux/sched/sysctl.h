@@ -47,6 +47,7 @@ extern unsigned int sysctl_numa_balancing_force_enable;
 extern unsigned int sysctl_numa_balancing_write_bias;
 extern unsigned int sysctl_numa_balancing_scan_demoted;
 extern unsigned int sysctl_numa_balancing_demoted_threshold;
+extern unsigned int sysctl_numa_balancing_scan_async;
 #else
 #define sysctl_numa_balancing_mode	0
 #define sysctl_numa_balancing_force_enable	0
