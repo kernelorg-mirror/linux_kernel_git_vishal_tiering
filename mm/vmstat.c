@@ -1174,6 +1174,7 @@ const char * const vmstat_text[] = {
 	"nr_foll_pin_released",
 #ifdef CONFIG_NUMA_BALANCING
 	"numa_nr_candidate",
+	"numa_try_migrate",
 #endif
 
 	/* enum writeback_stat_item counters */

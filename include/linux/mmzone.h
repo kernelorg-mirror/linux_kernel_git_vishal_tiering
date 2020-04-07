@@ -205,6 +205,7 @@ enum node_stat_item {
 	NR_FOLL_PIN_RELEASED,	/* pages returned via unpin_user_page() */
 #ifdef CONFIG_NUMA_BALANCING
 	NUMA_NR_CANDIDATE,	/* candidate pages to migrate */
+	NUMA_TRY_MIGRATE,	/* pages to try to migrate via NUMA balancing */
 #endif
 	NR_VM_NODE_STAT_ITEMS
 };
@@ -754,6 +755,7 @@ typedef struct pglist_data {
 	unsigned long numa_nr_candidate;
 	unsigned long numa_threshold_ts;
 	unsigned long numa_threshold_nr_candidate;
+	unsigned long numa_threshold_try;
 	unsigned long numa_threshold;
 #endif
 	/* Fields commonly accessed by the page reclaim scanner */
