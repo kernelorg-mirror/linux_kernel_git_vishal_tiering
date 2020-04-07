@@ -1488,12 +1488,11 @@ static void numa_migration_adjust_threshold(struct pglist_data *pgdat,
 
 	th_period = msecs_to_jiffies(sysctl_numa_balancing_scan_period_max);
 	last_th_ts = pgdat->numa_threshold_ts;
-	if (now > last_th_ts + th_period &&
+	ref_cand = rate_limit * sysctl_numa_balancing_scan_period_max / 1000;
+	nr_cand = node_page_state(pgdat, NUMA_NR_CANDIDATE);
+	diff_cand = nr_cand - pgdat->numa_threshold_nr_candidate;
+	if ((now > last_th_ts + th_period || diff_cand > ref_cand * 11 / 10) &&
 	    cmpxchg(&pgdat->numa_threshold_ts, last_th_ts, now) == last_th_ts) {
-		ref_cand = rate_limit *
-			sysctl_numa_balancing_scan_period_max / 1000;
-		nr_cand = node_page_state(pgdat, NUMA_NR_CANDIDATE);
-		diff_cand = nr_cand - pgdat->numa_threshold_nr_candidate;
 		unit_th = ref_th / NUMA_MIGRATION_ADJUST_STEPS;
 		th = pgdat->numa_threshold ? : ref_th;
 		if (diff_cand > ref_cand * 11 / 10)
