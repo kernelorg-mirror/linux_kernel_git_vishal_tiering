@@ -21,6 +21,7 @@
 #include <linux/vmstat.h>
 #include <linux/writeback.h>
 #include <linux/page-flags.h>
+#include <linux/nodemask.h>
 
 struct mem_cgroup;
 struct obj_cgroup;
@@ -1003,7 +1004,8 @@ static inline void mod_memcg_lruvec_state(struct lruvec *lruvec,
 
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 						gfp_t gfp_mask,
-						unsigned long *total_scanned);
+						unsigned long *total_scanned,
+						enum node_states type);
 
 void __count_memcg_events(struct mem_cgroup *memcg, enum vm_event_item idx,
 			  unsigned long count);
@@ -1421,8 +1423,9 @@ static inline void mod_lruvec_kmem_state(void *p, enum node_stat_item idx,
 
 static inline
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
-					    gfp_t gfp_mask,
-					    unsigned long *total_scanned)
+						gfp_t gfp_mask,
+						unsigned long *total_scanned,
+						enum node_states type)
 {
 	return 0;
 }
