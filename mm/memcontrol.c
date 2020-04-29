@@ -1694,7 +1694,8 @@ unlock:
 static int mem_cgroup_soft_reclaim(struct mem_cgroup *root_memcg,
 				   pg_data_t *pgdat,
 				   gfp_t gfp_mask,
-				   unsigned long *total_scanned)
+				   unsigned long *total_scanned,
+				   enum node_states type)
 {
 	struct mem_cgroup *victim = NULL;
 	int total = 0;
@@ -1705,7 +1706,7 @@ static int mem_cgroup_soft_reclaim(struct mem_cgroup *root_memcg,
 		.pgdat = pgdat,
 	};
 
-	excess = soft_limit_excess(root_memcg, N_MEMORY);
+	excess = soft_limit_excess(root_memcg, type);
 
 	while (1) {
 		victim = mem_cgroup_iter(root_memcg, victim, &reclaim);
@@ -1734,7 +1735,7 @@ static int mem_cgroup_soft_reclaim(struct mem_cgroup *root_memcg,
 		total += mem_cgroup_shrink_node(victim, gfp_mask, false,
 					pgdat, &nr_scanned);
 		*total_scanned += nr_scanned;
-		if (!soft_limit_excess(root_memcg, N_MEMORY))
+		if (!soft_limit_excess(root_memcg, type))
 			break;
 	}
 	mem_cgroup_iter_break(root_memcg, victim);
@@ -3345,7 +3346,8 @@ static int mem_cgroup_resize_max(struct mem_cgroup *memcg,
 
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 					    gfp_t gfp_mask,
-					    unsigned long *total_scanned)
+					    unsigned long *total_scanned,
+					    enum node_states type)
 {
 	unsigned long nr_reclaimed = 0;
 	struct mem_cgroup_per_node *mz, *next_mz = NULL;
@@ -3355,12 +3357,24 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 	unsigned long excess;
 	unsigned long nr_scanned;
 	int migration_nid;
+	enum node_states sibling_type;
 
 	if (order > 0)
 		return 0;
 
-	mctz = soft_limit_tree_node(pgdat->node_id, N_MEMORY);
-	mctz_sibling = soft_limit_tree_node(pgdat->node_id, N_TOPTIER);
+	if (type != N_MEMORY && type != N_TOPTIER)
+		return 0;
+
+	if (type == N_TOPTIER && !node_state(pgdat->node_id, N_TOPTIER))
+		return 0;
+
+	if (type == N_TOPTIER)
+		sibling_type = N_MEMORY;
+	else
+		sibling_type = N_TOPTIER;
+
+	mctz = soft_limit_tree_node(pgdat->node_id, type);
+	mctz_sibling = soft_limit_tree_node(pgdat->node_id, sibling_type);
 
 	/*
 	 * Do not even bother to check the largest node if the root
@@ -3383,7 +3397,7 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 		if (mmctz && !RB_EMPTY_ROOT(&mmctz->rb_root)) {
 			pgdat = NODE_DATA(migration_nid);
 			return mem_cgroup_soft_limit_reclaim(pgdat, order,
-				gfp_mask, total_scanned);
+				gfp_mask, total_scanned, type);
 		}
 	}
 
@@ -3396,17 +3410,17 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 		if (next_mz)
 			mz = next_mz;
 		else
-			mz = mem_cgroup_largest_soft_limit_node(mctz, N_MEMORY);
+			mz = mem_cgroup_largest_soft_limit_node(mctz, type);
 		if (!mz)
 			break;
 
 		nr_scanned = 0;
 		reclaimed = mem_cgroup_soft_reclaim(mz->memcg, pgdat,
-						    gfp_mask, &nr_scanned);
+						    gfp_mask, &nr_scanned, type);
 		nr_reclaimed += reclaimed;
 		*total_scanned += nr_scanned;
 		spin_lock_irq(&mctz->lock);
-		__mem_cgroup_remove_exceeded(mz, mctz, N_MEMORY);
+		__mem_cgroup_remove_exceeded(mz, mctz, type);
 
 		/*
 		 * If we failed to reclaim anything from this memory cgroup
@@ -3415,9 +3429,9 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 		next_mz = NULL;
 		if (!reclaimed)
 			next_mz =
-			   __mem_cgroup_largest_soft_limit_node(mctz, N_MEMORY);
+			   __mem_cgroup_largest_soft_limit_node(mctz, type);
 
-		excess = soft_limit_excess(mz->memcg, N_MEMORY);
+		excess = soft_limit_excess(mz->memcg, type);
 		/*
 		 * One school of thought says that we should not add
 		 * back the node to the tree if reclaim returns 0.
@@ -3427,17 +3441,17 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 		 * term TODO.
 		 */
 		/* If excess == 0, no tree ops */
-		__mem_cgroup_insert_exceeded(mz, mctz, excess, N_MEMORY);
+		__mem_cgroup_insert_exceeded(mz, mctz, excess, type);
 		spin_unlock_irq(&mctz->lock);
 
 		/* update both affected N_MEMORY and N_TOPTIER trees */
 		if (mctz_sibling) {
 			spin_lock_irq(&mctz_sibling->lock);
 			__mem_cgroup_remove_exceeded(mz, mctz_sibling,
-						     N_TOPTIER);
-			excess = soft_limit_excess(mz->memcg, N_TOPTIER);
+						     sibling_type);
+			excess = soft_limit_excess(mz->memcg, sibling_type);
 			__mem_cgroup_insert_exceeded(mz, mctz, excess,
-						     N_TOPTIER);
+						     sibling_type);
 			spin_unlock_irq(&mctz_sibling->lock);
 		}
 

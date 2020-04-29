@@ -21,6 +21,7 @@
 #include <linux/vmstat.h>
 #include <linux/writeback.h>
 #include <linux/page-flags.h>
+#include <linux/nodemask.h>
 
 struct mem_cgroup;
 struct obj_cgroup;
@@ -1128,7 +1129,8 @@ void split_page_memcg(struct page *head, unsigned int nr);
 
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 						gfp_t gfp_mask,
-						unsigned long *total_scanned);
+						unsigned long *total_scanned,
+						enum node_states type);
 
 #else /* CONFIG_MEMCG */
 
@@ -1482,7 +1484,8 @@ static inline void split_page_memcg(struct page *head, unsigned int nr)
 static inline
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 					    gfp_t gfp_mask,
-					    unsigned long *total_scanned)
+					    unsigned long *total_scanned,
+					    enum node_states type)
 {
 	return 0;
 }

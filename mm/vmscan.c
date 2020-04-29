@@ -3315,7 +3315,7 @@ static void shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 			nr_soft_scanned = 0;
 			nr_soft_reclaimed = mem_cgroup_soft_limit_reclaim(zone->zone_pgdat,
 						sc->order, sc->gfp_mask,
-						&nr_soft_scanned);
+						&nr_soft_scanned, N_MEMORY);
 			sc->nr_reclaimed += nr_soft_reclaimed;
 			sc->nr_scanned += nr_soft_scanned;
 			/* need some check for avoid more shrink_zone() */
@@ -4029,7 +4029,7 @@ restart:
 		sc.nr_scanned = 0;
 		nr_soft_scanned = 0;
 		nr_soft_reclaimed = mem_cgroup_soft_limit_reclaim(pgdat, sc.order,
-						sc.gfp_mask, &nr_soft_scanned);
+						sc.gfp_mask, &nr_soft_scanned, N_MEMORY);
 		sc.nr_reclaimed += nr_soft_reclaimed;
 
 		/*
