@@ -193,6 +193,7 @@ static void set_task_reclaim_state(struct task_struct *task,
 
 static LIST_HEAD(shrinker_list);
 static DECLARE_RWSEM(shrinker_rwsem);
+int toptier_scale_factor = 2000;
 
 #ifdef CONFIG_MEMCG
 /*
@@ -3588,6 +3589,45 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int highest_zoneidx)
 	return false;
 }
 
+static bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx)
+{
+	int i;
+	unsigned long mark = -1;
+	struct zone *zone;
+
+	if (!node_state(pgdat->node_id, N_TOPTIER) ||
+	    next_demotion_node(pgdat->node_id) == -1 ||
+	    order > 0 || classzone_idx < ZONE_NORMAL)
+		return true;
+
+	/*
+	 * Check watermarks bottom-up as lower zones are more likely to
+	 * meet watermarks.  Only look at ZONE_NORMAL upwards.
+	 */
+	for (i = ZONE_NORMAL; i <= classzone_idx; i++) {
+		zone = pgdat->node_zones + i;
+
+		if (!managed_zone(zone))
+			continue;
+
+		mark = toptier_wmark_pages(zone);
+		if (mark > zone_managed_pages(zone))
+			return true;
+		if (zone_watermark_ok_safe(zone, order, mark, classzone_idx))
+			return true;
+	}
+
+	/*
+	 * If a node has no populated zone within classzone_idx, it does not
+	 * need balancing by definition. This can happen if a zone-restricted
+	 * allocation tries to wake a remote kswapd.
+	 */
+	if (mark == -1)
+		return true;
+
+	return false;
+}
+
 /* Clear pgdat state for congested, dirty or under writeback. */
 static void clear_pgdat_congested(pg_data_t *pgdat)
 {
@@ -4013,6 +4053,40 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int alloc_order, int reclaim_o
 	finish_wait(&pgdat->kswapd_wait, &wait);
 }
 
+static bool toptier_soft_reclaim(pg_data_t *pgdat,
+			      unsigned int alloc_order,
+			      unsigned int reclaim_order,
+			      unsigned int classzone_idx)
+{
+	unsigned long nr_soft_scanned, nr_soft_reclaimed;
+	int ret;
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.order = reclaim_order,
+		.may_unmap = 1,
+	};
+
+	set_task_reclaim_state(current, &sc.reclaim_state);
+
+	if (!node_state(pgdat->node_id, N_TOPTIER) || kthread_should_stop())
+		return false;
+
+	if (!pgdat_toptier_balanced(pgdat, alloc_order, classzone_idx)) {
+		nr_soft_scanned = 0;
+		nr_soft_reclaimed = mem_cgroup_soft_limit_reclaim(pgdat,
+					alloc_order, GFP_KERNEL,
+					&nr_soft_scanned, N_TOPTIER);
+	}
+
+	set_task_reclaim_state(current, NULL);
+
+	if (prepare_kswapd_sleep(pgdat, reclaim_order, classzone_idx) &&
+	   !kthread_should_stop())
+		return true;
+	else
+		return false;
+}
+
 /*
  * The background pageout daemon, started as a kernel thread
  * from the init process.
@@ -4071,6 +4145,10 @@ kswapd_try_sleep:
 							highest_zoneidx);
 		WRITE_ONCE(pgdat->kswapd_order, 0);
 		WRITE_ONCE(pgdat->kswapd_highest_zoneidx, MAX_NR_ZONES);
+
+		if (toptier_soft_reclaim(pgdat, alloc_order, reclaim_order,
+					highest_zoneidx))
+			goto kswapd_try_sleep;
 
 		ret = try_to_freeze();
 		if (kthread_should_stop())
