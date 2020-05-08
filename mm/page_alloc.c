@@ -7964,6 +7964,20 @@ static void __setup_per_zone_wmarks(void)
 		zone->_watermark[WMARK_LOW]  = min_wmark_pages(zone) + tmp;
 		zone->_watermark[WMARK_HIGH] = min_wmark_pages(zone) + tmp * 2;
 
+		tmp = mult_frac(zone_managed_pages(zone),
+				toptier_scale_factor, 10000);
+		/*
+		 * Clamp toptier watermark between twice high watermark
+		 * and max managed pages.
+		 */
+		if (tmp < 2 * zone->_watermark[WMARK_HIGH])
+			tmp = 2 * zone->_watermark[WMARK_HIGH];
+		if (tmp > zone_managed_pages(zone))
+			tmp = zone_managed_pages(zone);
+		zone->_watermark[WMARK_TOPTIER] = tmp;
+
+		zone->watermark_boost = 0;
+
 		spin_unlock_irqrestore(&zone->lock, flags);
 	}
 
