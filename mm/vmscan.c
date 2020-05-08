@@ -188,6 +188,7 @@ static void set_task_reclaim_state(struct task_struct *task,
 
 static LIST_HEAD(shrinker_list);
 static DECLARE_RWSEM(shrinker_rwsem);
+int toptier_scale_factor = 2000;
 
 #ifdef CONFIG_MEMCG
 static int shrinker_nr_max;
@@ -3804,6 +3805,33 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int highest_zoneidx)
 	return false;
 }
 
+static bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx)
+{
+	unsigned long mark;
+	struct zone *zone;
+
+	zone = pgdat->node_zones + ZONE_NORMAL;
+
+	if (!node_state(pgdat->node_id, N_TOPTIER) ||
+	    next_demotion_node(pgdat->node_id) == -1 ||
+	    order > 0 || classzone_idx < ZONE_NORMAL) {
+		return true;
+	}
+
+	zone = pgdat->node_zones + ZONE_NORMAL;
+
+	if (!managed_zone(zone))
+		return true;
+
+	mark = min(toptier_wmark_pages(zone),
+		   zone_managed_pages(zone));
+
+	if (zone_page_state(zone, NR_FREE_PAGES) < mark)
+		return false;
+
+	return true;
+}
+
 /* Clear pgdat state for congested, dirty or under writeback. */
 static void clear_pgdat_congested(pg_data_t *pgdat)
 {
@@ -4229,6 +4257,38 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int alloc_order, int reclaim_o
 	finish_wait(&pgdat->kswapd_wait, &wait);
 }
 
+static bool toptier_soft_reclaim(pg_data_t *pgdat,
+			      unsigned int reclaim_order,
+			      unsigned int classzone_idx)
+{
+	unsigned long nr_soft_scanned;
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.order = reclaim_order,
+		.may_unmap = 1,
+	};
+
+	if (!node_state(pgdat->node_id, N_TOPTIER) || kthread_should_stop())
+		return false;
+
+	set_task_reclaim_state(current, &sc.reclaim_state);
+
+	if (!pgdat_toptier_balanced(pgdat, 0, classzone_idx)) {
+		nr_soft_scanned = 0;
+		mem_cgroup_soft_limit_reclaim(pgdat,
+				0, GFP_KERNEL,
+				&nr_soft_scanned, N_TOPTIER);
+	}
+
+	set_task_reclaim_state(current, NULL);
+
+	if (prepare_kswapd_sleep(pgdat, reclaim_order, classzone_idx) &&
+	   !kthread_should_stop())
+		return true;
+	else
+		return false;
+}
+
 /*
  * The background pageout daemon, started as a kernel thread
  * from the init process.
@@ -4287,6 +4347,10 @@ kswapd_try_sleep:
 							highest_zoneidx);
 		WRITE_ONCE(pgdat->kswapd_order, 0);
 		WRITE_ONCE(pgdat->kswapd_highest_zoneidx, MAX_NR_ZONES);
+
+		if (toptier_soft_reclaim(pgdat, 0,
+					highest_zoneidx))
+			goto kswapd_try_sleep;
 
 		ret = try_to_freeze();
 		if (kthread_should_stop())
@@ -4353,7 +4417,8 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 
 	/* Hopeless node, leave it to direct reclaim if possible */
 	if (pgdat->kswapd_failures >= MAX_RECLAIM_RETRIES ||
-	    (pgdat_balanced(pgdat, order, highest_zoneidx) &&
+	    (pgdat_toptier_balanced(pgdat, 0, highest_zoneidx) &&
+	     pgdat_balanced(pgdat, order, highest_zoneidx) &&
 	     !pgdat_watermark_boosted(pgdat, highest_zoneidx))) {
 		/*
 		 * There may be plenty of free memory available, but it's too
