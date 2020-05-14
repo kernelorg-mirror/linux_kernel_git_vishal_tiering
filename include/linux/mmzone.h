@@ -826,6 +826,8 @@ bool zone_watermark_ok(struct zone *z, unsigned int order,
 		unsigned int alloc_flags);
 bool zone_watermark_ok_safe(struct zone *z, unsigned int order,
 		unsigned long mark, int highest_zoneidx);
+bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx);
+
 enum memmap_context {
 	MEMMAP_EARLY,
 	MEMMAP_HOTPLUG,
@@ -1460,5 +1462,6 @@ static inline bool memmap_valid_within(unsigned long pfn,
 #endif /* CONFIG_ARCH_HAS_HOLES_MEMORYMODEL */
 
 #endif /* !__GENERATING_BOUNDS.H */
+
 #endif /* !__ASSEMBLY__ */
 #endif /* _LINUX_MMZONE_H */

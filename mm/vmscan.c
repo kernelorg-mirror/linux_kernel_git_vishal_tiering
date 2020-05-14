@@ -3589,7 +3589,7 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int highest_zoneidx)
 	return false;
 }
 
-static bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx)
+bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx)
 {
 	int i;
 	unsigned long mark = -1;
@@ -4066,10 +4066,10 @@ static bool toptier_soft_reclaim(pg_data_t *pgdat,
 		.may_unmap = 1,
 	};
 
-	set_task_reclaim_state(current, &sc.reclaim_state);
-
 	if (!node_state(pgdat->node_id, N_TOPTIER) || kthread_should_stop())
 		return false;
+
+	set_task_reclaim_state(current, &sc.reclaim_state);
 
 	if (!pgdat_toptier_balanced(pgdat, alloc_order, classzone_idx)) {
 		nr_soft_scanned = 0;
@@ -4215,7 +4215,8 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 
 	/* Hopeless node, leave it to direct reclaim if possible */
 	if (pgdat->kswapd_failures >= MAX_RECLAIM_RETRIES ||
-	    (pgdat_balanced(pgdat, order, highest_zoneidx) &&
+	    (pgdat_toptier_balanced(pgdat, order, highest_zoneidx) &&
+	     pgdat_balanced(pgdat, order, highest_zoneidx) &&
 	     !pgdat_watermark_boosted(pgdat, highest_zoneidx))) {
 		/*
 		 * There may be plenty of free memory available, but it's too
