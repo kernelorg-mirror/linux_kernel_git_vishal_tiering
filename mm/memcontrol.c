@@ -3631,6 +3631,7 @@ enum {
 	RES_FAILCNT,
 	RES_SOFT_LIMIT,
 	RES_TOPTIER_SOFT_LIMIT,
+	RES_TOPTIER_USAGE,
 };
 
 static u64 mem_cgroup_read_u64(struct cgroup_subsys_state *css,
@@ -3673,6 +3674,8 @@ static u64 mem_cgroup_read_u64(struct cgroup_subsys_state *css,
 		return (u64)memcg->soft_limit * PAGE_SIZE;
 	case RES_TOPTIER_SOFT_LIMIT:
 		return (u64)memcg->toptier_soft_limit * PAGE_SIZE;
+	case RES_TOPTIER_USAGE:
+		return (u64)page_counter_read(&memcg->toptier) * PAGE_SIZE;
 	default:
 		BUG();
 	}
@@ -5071,6 +5074,11 @@ static struct cftype mem_cgroup_legacy_files[] = {
 		.name = "toptier_soft_limit_in_bytes",
 		.private = MEMFILE_PRIVATE(_MEM, RES_TOPTIER_SOFT_LIMIT),
 		.write = mem_cgroup_write,
+		.read_u64 = mem_cgroup_read_u64,
+	},
+	{
+		.name = "toptier_usage_in_bytes",
+		.private = MEMFILE_PRIVATE(_MEM, RES_TOPTIER_USAGE),
 		.read_u64 = mem_cgroup_read_u64,
 	},
 	{
