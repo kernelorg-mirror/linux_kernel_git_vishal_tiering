@@ -4325,7 +4325,9 @@ static int __node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned in
 	p->flags |= PF_SWAPWRITE;
 	set_task_reclaim_state(p, &sc.reclaim_state);
 
+#if 0
 	if (node_pagecache_reclaimable(pgdat) > pgdat->min_unmapped_pages) {
+#endif
 		/*
 		 * Free memory by calling shrink node with increasing
 		 * priorities until we have enough memory freed.
@@ -4333,7 +4335,9 @@ static int __node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned in
 		do {
 			shrink_node(pgdat, &sc);
 		} while (sc.nr_reclaimed < nr_pages && --sc.priority >= 0);
+#if 0
 	}
+#endif
 
 	set_task_reclaim_state(p, NULL);
 	current->flags &= ~PF_SWAPWRITE;
@@ -4349,6 +4353,7 @@ int node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned int order)
 {
 	int ret;
 
+#if 0
 	/*
 	 * Node reclaim reclaims unmapped file backed pages and
 	 * slab pages if we are over the defined limits.
@@ -4363,6 +4368,7 @@ int node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned int order)
 	    node_page_state_pages(pgdat, NR_SLAB_RECLAIMABLE_B) <=
 	    pgdat->min_slab_pages)
 		return NODE_RECLAIM_FULL;
+#endif
 
 	/*
 	 * Do not scan if the allocation should not be delayed.
