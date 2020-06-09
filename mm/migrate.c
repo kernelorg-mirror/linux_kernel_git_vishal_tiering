@@ -2146,8 +2146,7 @@ COMPAT_SYSCALL_DEFINE6(move_pages, pid_t, pid, compat_ulong_t, nr_pages,
  * Returns true if this is a safe migration target node for misplaced NUMA
  * pages. Currently it only checks the watermarks which crude
  */
-static bool migrate_balanced_pgdat(struct pglist_data *pgdat,
-				   unsigned long nr_migrate_pages)
+static bool migrate_balanced_pgdat(struct pglist_data *pgdat, int order)
 {
 	int z;
 
@@ -2157,10 +2156,8 @@ static bool migrate_balanced_pgdat(struct pglist_data *pgdat,
 		if (!populated_zone(zone))
 			continue;
 
-		/* Avoid waking kswapd by allocating pages_to_migrate pages. */
-		if (!zone_watermark_ok(zone, 0,
-				       high_wmark_pages(zone) +
-				       nr_migrate_pages,
+		/* Avoid waking kswapd by allocating pages to migrate. */
+		if (!zone_watermark_ok(zone, order, high_wmark_pages(zone),
 				       ZONE_MOVABLE, 0))
 			continue;
 		return true;
@@ -2185,12 +2182,12 @@ static struct page *alloc_misplaced_dst_page(struct page *page,
 
 static int numamigrate_isolate_page(pg_data_t *pgdat, struct page *page)
 {
-	int page_lru, nr = compound_nr(page), order = compound_order(page);
+	int page_lru, order = compound_order(page);
 
 	VM_BUG_ON_PAGE(order && !PageTransHuge(page), page);
 
 	/* Avoid migrating to a node that is nearly full */
-	if (!migrate_balanced_pgdat(pgdat, nr)) {
+	if (!migrate_balanced_pgdat(pgdat, order)) {
 		int migration_node, z;
 		pg_data_t *migration_pgdat;
 
@@ -2206,7 +2203,7 @@ static int numamigrate_isolate_page(pg_data_t *pgdat, struct page *page)
 		if (migration_node == NUMA_NO_NODE)
 			return 0;
 		migration_pgdat = NODE_DATA(migration_node);
-		if (!migrate_balanced_pgdat(migration_pgdat, nr))
+		if (!migrate_balanced_pgdat(migration_pgdat, order))
 			return 0;
 		for (z = pgdat->nr_zones - 1; z >= 0; z--) {
 			if (populated_zone(pgdat->node_zones + z))
