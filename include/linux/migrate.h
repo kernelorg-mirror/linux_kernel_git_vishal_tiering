@@ -37,6 +37,9 @@ enum migrate_reason {
 	MR_TYPES
 };
 
+/* promote_file_page() flags */
+#define PFP_LOCKED		0x1
+
 extern const char *migrate_reason_names[MR_TYPES];
 
 #ifdef CONFIG_MIGRATION
@@ -102,11 +105,16 @@ static inline void __ClearPageMovable(struct page *page)
 #ifdef CONFIG_NUMA_BALANCING
 extern int migrate_misplaced_page(struct page *page,
 				  struct vm_area_struct *vma, int node);
+extern bool promote_file_page(struct page *page, int flags);
 #else
 static inline int migrate_misplaced_page(struct page *page,
 					 struct vm_area_struct *vma, int node)
 {
 	return -EAGAIN; /* can't migrate now */
+}
+static inline bool promote_file_page(struct page *page, int flags)
+{
+	return false;
 }
 #endif /* CONFIG_NUMA_BALANCING */
 
