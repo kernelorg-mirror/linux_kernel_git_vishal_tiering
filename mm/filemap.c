@@ -42,6 +42,7 @@
 #include <linux/psi.h>
 #include <linux/ramfs.h>
 #include <linux/page_idle.h>
+#include <linux/migrate.h>
 #include "internal.h"
 
 #define CREATE_TRACE_POINTS
@@ -2184,6 +2185,7 @@ ssize_t generic_file_buffered_read(struct kiocb *iocb,
 		pgoff_t end_index;
 		loff_t isize;
 		unsigned long nr, ret;
+		bool promotion_tried = false;
 
 		cond_resched();
 find_page:
@@ -2280,6 +2282,17 @@ page_ok:
 			}
 		}
 		nr = nr - offset;
+
+		/*
+		 * We may lose the reference to the page in
+		 * promote_file_page(), e.g. page is migrated, if so
+		 * we need to find the page again.  Same for the file
+		 * writing.
+		 */
+		if (!promotion_tried && promote_file_page(page, 0)) {
+			promotion_tried = true;
+			goto find_page;
+		}
 
 		/* If users can be writing to this page using arbitrary
 		 * virtual addresses, take care about potential aliasing
@@ -3444,14 +3457,22 @@ struct page *grab_cache_page_write_begin(struct address_space *mapping,
 {
 	struct page *page;
 	int fgp_flags = FGP_LOCK|FGP_WRITE|FGP_CREAT;
+	bool promotion_tried = false;
 
 	if (flags & AOP_FLAG_NOFS)
 		fgp_flags |= FGP_NOFS;
 
+find_page:
 	page = pagecache_get_page(mapping, index, fgp_flags,
 			mapping_gfp_mask(mapping));
-	if (page)
+	if (page) {
 		wait_for_stable_page(page);
+
+		if (!promotion_tried && promote_file_page(page, PFP_LOCKED)) {
+			promotion_tried = true;
+			goto find_page;
+		}
+	}
 
 	return page;
 }
