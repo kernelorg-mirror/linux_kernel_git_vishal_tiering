@@ -42,6 +42,7 @@
 #include <linux/psi.h>
 #include <linux/ramfs.h>
 #include <linux/page_idle.h>
+#include <linux/migrate.h>
 #include "internal.h"
 
 #define CREATE_TRACE_POINTS
@@ -2349,6 +2350,7 @@ static int generic_file_buffered_read_get_pages(struct kiocb *iocb,
 	pgoff_t index = iocb->ki_pos >> PAGE_SHIFT;
 	pgoff_t last_index = (iocb->ki_pos + iter->count + PAGE_SIZE-1) >> PAGE_SHIFT;
 	int i, j, nr_got, err = 0;
+	bool promotion_tried = false;
 
 	nr = min_t(unsigned long, last_index - index, nr);
 find_page:
@@ -2414,8 +2416,33 @@ got_pages:
 		}
 	}
 
-	if (likely(nr_got))
+	if (likely(nr_got)) {
+		/*
+		 * We may lose the reference to the page in
+		 * promote_file_page(), e.g. page is migrated, if so
+		 * we need to find the page again.  Same for the file
+		 * writing.
+		 */
+		if (!promotion_tried) {
+			int lost_ref = 0;
+
+			promotion_tried = true;
+			for (i = 0; i < nr_got; i++) {
+				if (promote_file_page(pages[i], 0)) {
+					lost_ref++;
+					pages[i] = NULL;
+				}
+			}
+			if (lost_ref) {
+				for (i = 0; i < nr_got; i++) {
+					if (pages[i])
+						put_page(pages[i]);
+				}
+				goto find_page;
+			}
+		}
 		return nr_got;
+	}
 	if (err)
 		return err;
 	/*
@@ -3355,14 +3382,22 @@ struct page *grab_cache_page_write_begin(struct address_space *mapping,
 {
 	struct page *page;
 	int fgp_flags = FGP_LOCK|FGP_WRITE|FGP_CREAT;
+	bool promotion_tried = false;
 
 	if (flags & AOP_FLAG_NOFS)
 		fgp_flags |= FGP_NOFS;
 
+find_page:
 	page = pagecache_get_page(mapping, index, fgp_flags,
 			mapping_gfp_mask(mapping));
-	if (page)
+	if (page) {
 		wait_for_stable_page(page);
+
+		if (!promotion_tried && promote_file_page(page, PFP_LOCKED)) {
+			promotion_tried = true;
+			goto find_page;
+		}
+	}
 
 	return page;
 }
