@@ -647,6 +647,9 @@ static unsigned long soft_limit_excess(struct mem_cgroup *memcg, enum node_state
 	if (nr_pages > soft_limit)
 		excess = nr_pages - soft_limit;
 
+	if (type == N_TOPTIER)
+		trace_printk("soft limit excess: memcg %p toptier %ld limit %ld excess %ld\n",
+			memcg, (long) nr_pages, (long) soft_limit, (long) excess);
 	return excess;
 }
 
@@ -662,6 +665,9 @@ repeat_toptier:
 	memcg = bottom_memcg;
 	mctz = soft_limit_tree_from_page(page, type);
 
+	if (type == N_TOPTIER)
+		trace_printk("update tree begin, node %d,  mctz %p\n",
+				page_to_nid(page), mctz);
 	if (!mctz)
 		return;
 	/*
@@ -673,6 +679,9 @@ repeat_toptier:
 
 		mz = mem_cgroup_page_nodeinfo(memcg, page);
 		excess = soft_limit_excess(memcg, type);
+		if (type == N_TOPTIER)
+			trace_printk("update tree, node %d,  excess %ld\n",
+					page_to_nid(page), (long) excess);
 
 		on_tree = (type == N_MEMORY) ? mz->on_tree: mz->on_toptier_tree;
 		/*
@@ -1687,8 +1696,12 @@ static int mem_cgroup_soft_reclaim(struct mem_cgroup *root_memcg,
 	struct mem_cgroup_reclaim_cookie reclaim = {
 		.pgdat = pgdat,
 	};
+	char cg_name[80];
 
 	excess = soft_limit_excess(root_memcg, type);
+	cgroup_name(root_memcg->css.cgroup, cg_name, 80);
+	trace_printk("soft reclaim start, cgroup %s, excess: %ld\n",
+			cg_name, (long) excess);
 
 	while (1) {
 		victim = mem_cgroup_iter(root_memcg, victim, &reclaim);
@@ -1721,6 +1734,11 @@ static int mem_cgroup_soft_reclaim(struct mem_cgroup *root_memcg,
 			break;
 	}
 	mem_cgroup_iter_break(root_memcg, victim);
+
+	excess = soft_limit_excess(root_memcg, type);
+	trace_printk("soft reclaim end, excess %ld, reclaimed %ld\n",
+			(long) excess, (long) total);
+
 	return total;
 }
 
@@ -3233,6 +3251,9 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 
 	mctz = soft_limit_tree_node(pgdat->node_id, type);
 	mctz_sibling = soft_limit_tree_node(pgdat->node_id, sibling_type);
+	if (type == N_TOPTIER)
+		trace_printk("soft limit reclaim start, node %d order %d mctz %p (empty %d) begin\n",
+				pgdat->node_id, order, mctz, (int) RB_EMPTY_ROOT(&mctz->rb_root));
 
 	/*
 	 * Do not even bother to check the largest node if the root
@@ -3279,6 +3300,8 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 		*total_scanned += nr_scanned;
 		spin_lock_irq(&mctz->lock);
 		__mem_cgroup_remove_exceeded(mz, mctz, type);
+		trace_printk("soft reclaim memcg %p node %d reclaimed %ld\n",
+				mz->memcg, pgdat->node_id, (long) reclaimed);
 
 		/*
 		 * If we failed to reclaim anything from this memory cgroup
@@ -3327,6 +3350,10 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 	} while (!nr_reclaimed);
 	if (next_mz)
 		css_put(&next_mz->memcg->css);
+
+	if (type == N_TOPTIER)
+		trace_printk("soft limit reclaim end, node %d order %d reclaimed %ld\n",
+				pgdat->node_id, order, (long) nr_reclaimed);
 	return nr_reclaimed;
 }
 

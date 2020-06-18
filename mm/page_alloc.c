@@ -3404,6 +3404,8 @@ out:
 		clear_bit(ZONE_BOOSTED_WATERMARK, &zone->flags);
 		wakeup_kswapd(zone, 0, 0, zone_idx(zone));
 	} else if (!pgdat_toptier_balanced(zone->zone_pgdat, order, zone_idx(zone))) {
+		trace_printk("wakeup kswapd, unbalanced toptier node %d zone idx %d\n",
+				zone->zone_pgdat->node_id, (int) zone_idx(zone));
 		wakeup_kswapd(zone, 0, 0, zone_idx(zone));
 	}
 
@@ -3611,13 +3613,18 @@ static inline bool zone_watermark_fast(struct zone *z, unsigned int order,
 bool zone_watermark_ok_safe(struct zone *z, unsigned int order,
 			unsigned long mark, int highest_zoneidx)
 {
+	int ret;
+
 	long free_pages = zone_page_state(z, NR_FREE_PAGES);
 
 	if (z->percpu_drift_mark && free_pages < z->percpu_drift_mark)
 		free_pages = zone_page_state_snapshot(z, NR_FREE_PAGES);
 
-	return __zone_watermark_ok(z, order, mark, highest_zoneidx, 0,
+	ret = __zone_watermark_ok(z, order, mark, highest_zoneidx, 0,
 								free_pages);
+	trace_printk("zone watermark ok: %d node %d zone idx %d free_pages %ld mark %ld\n",
+			ret, z->zone_pgdat->node_id, (int) zone_idx(z), free_pages, (long) mark);
+	return ret;
 }
 
 #ifdef CONFIG_NUMA

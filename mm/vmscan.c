@@ -3605,15 +3605,23 @@ bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx)
 	 * meet watermarks.  Only look at ZONE_NORMAL upwards.
 	 */
 	for (i = ZONE_NORMAL; i <= classzone_idx; i++) {
+		int wmark_ok = 0;
+
 		zone = pgdat->node_zones + i;
 
 		if (!managed_zone(zone))
 			continue;
 
 		mark = toptier_wmark_pages(zone);
-		if (mark > zone_managed_pages(zone))
-			return true;
-		if (zone_watermark_ok_safe(zone, order, mark, classzone_idx))
+		if (mark > zone_managed_pages(zone)) {
+			wmark_ok = 1;
+		}
+		if (zone_watermark_ok_safe(zone, order, mark, classzone_idx)) {
+			wmark_ok = 2;
+		}
+		trace_printk("pgdat_toptier_balanced: node %d zone %d (NORMAL %d) wmark_ok %d\n",
+				pgdat->node_id, i, (int) ZONE_NORMAL, wmark_ok);
+		if (wmark_ok > 0)
 			return true;
 	}
 
@@ -4071,20 +4079,28 @@ static bool toptier_soft_reclaim(pg_data_t *pgdat,
 
 	set_task_reclaim_state(current, &sc.reclaim_state);
 
+	trace_printk("toptier soft reclaim begin\n");
 	if (!pgdat_toptier_balanced(pgdat, alloc_order, classzone_idx)) {
 		nr_soft_scanned = 0;
 		nr_soft_reclaimed = mem_cgroup_soft_limit_reclaim(pgdat,
 					alloc_order, GFP_KERNEL,
 					&nr_soft_scanned, N_TOPTIER);
+		trace_printk("top tier soft reclaim: node %d zone %d reclaimed %ld\n",
+			pgdat->node_id, classzone_idx, (long) nr_soft_reclaimed);
 	}
 
 	set_task_reclaim_state(current, NULL);
 
 	if (prepare_kswapd_sleep(pgdat, reclaim_order, classzone_idx) &&
 	   !kthread_should_stop())
-		return true;
+		ret = true;
 	else
-		return false;
+		ret = false;
+	trace_printk("top tier soft reclaim end: node %d balanced: %d ret = %d\n",
+			pgdat->node_id,
+			(int) pgdat_toptier_balanced(pgdat, alloc_order, classzone_idx),
+			ret);
+	return ret;
 }
 
 /*
