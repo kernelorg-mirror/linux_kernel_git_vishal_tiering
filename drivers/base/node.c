@@ -540,6 +540,15 @@ static ssize_t node_read_distance(struct device *dev,
 }
 static DEVICE_ATTR(distance, S_IRUGO, node_read_distance, NULL);
 
+static ssize_t node_read_demotion_node(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	int nid = dev->id;
+
+	return sprintf(buf, "%d\n", next_demotion_node(nid));
+}
+static DEVICE_ATTR(demotion_node, S_IRUGO, node_read_demotion_node, NULL);
+
 static struct attribute *node_dev_attrs[] = {
 	&dev_attr_cpumap.attr,
 	&dev_attr_cpulist.attr,
@@ -547,6 +556,7 @@ static struct attribute *node_dev_attrs[] = {
 	&dev_attr_numastat.attr,
 	&dev_attr_distance.attr,
 	&dev_attr_vmstat.attr,
+	&dev_attr_demotion_node.attr,
 	NULL
 };
 ATTRIBUTE_GROUPS(node_dev);
