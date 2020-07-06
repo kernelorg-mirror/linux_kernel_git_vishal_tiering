@@ -315,7 +315,7 @@ static inline bool can_reclaim_anon_pages(struct mem_cgroup *memcg,
 	 * memcg so should not be performed when in memcg
 	 * reclaim.
 	 */
-	if ((sc && cgroup_reclaim(sc)) && (next_demotion_node(node_id) >= 0))
+	if ((!sc || !cgroup_reclaim(sc)) && (next_demotion_node(node_id) >= 0))
 		return true;
 
 	/* No way to reclaim anon pages */
