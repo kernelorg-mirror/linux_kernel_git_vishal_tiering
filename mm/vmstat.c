@@ -1172,6 +1172,19 @@ const char * const vmstat_text[] = {
 	"nr_kernel_misc_reclaimable",
 	"nr_foll_pin_acquired",
 	"nr_foll_pin_released",
+	"pgactivate",
+	"pgdeactivate",
+	"pglazyfreed",
+	"pgrefill",
+	"pgsteal_kswapd",
+	"pgsteal_direct",
+	"pgdemote_kswapd",
+	"pgdemote_direct",
+	"pgscan_kswapd",
+	"pgscan_direct",
+	"kswapd_low_wmark_hit_quickly",
+	"kswapd_high_wmark_hit_quickly",
+	"pageoutrun",
 #ifdef CONFIG_NUMA_BALANCING
 	"numa_nr_candidate",
 	"numa_try_migrate",
@@ -1193,21 +1206,11 @@ const char * const vmstat_text[] = {
 	TEXTS_FOR_ZONES("pgskip")
 
 	"pgfree",
-	"pgactivate",
-	"pgdeactivate",
 	"pglazyfree",
 
 	"pgfault",
 	"pgmajfault",
-	"pglazyfreed",
 
-	"pgrefill",
-	"pgsteal_kswapd",
-	"pgsteal_direct",
-	"pgdemote_kswapd",
-	"pgdemote_direct",
-	"pgscan_kswapd",
-	"pgscan_direct",
 	"pgscan_direct_throttle",
 	"pgscan_anon",
 	"pgscan_file",
@@ -1220,9 +1223,6 @@ const char * const vmstat_text[] = {
 	"pginodesteal",
 	"slabs_scanned",
 	"kswapd_inodesteal",
-	"kswapd_low_wmark_hit_quickly",
-	"kswapd_high_wmark_hit_quickly",
-	"pageoutrun",
 
 	"pgrotated",
 

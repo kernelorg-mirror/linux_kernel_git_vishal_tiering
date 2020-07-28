@@ -203,6 +203,19 @@ enum node_stat_item {
 	NR_KERNEL_MISC_RECLAIMABLE,	/* reclaimable non-slab kernel pages */
 	NR_FOLL_PIN_ACQUIRED,	/* via: pin_user_page(), gup flag: FOLL_PIN */
 	NR_FOLL_PIN_RELEASED,	/* pages returned via unpin_user_page() */
+	PGACTIVATE,
+	PGDEACTIVATE,
+	PGLAZYFREED,
+	PGREFILL,
+	PGSTEAL_KSWAPD,
+	PGSTEAL_DIRECT,
+	PGDEMOTE_KSWAPD,
+	PGDEMOTE_DIRECT,
+	PGSCAN_KSWAPD,
+	PGSCAN_DIRECT,
+	KSWAPD_LOW_WMARK_HIT_QUICKLY,
+	KSWAPD_HIGH_WMARK_HIT_QUICKLY,
+	PAGEOUTRUN,
 #ifdef CONFIG_NUMA_BALANCING
 	NUMA_NR_CANDIDATE,	/* candidate pages to migrate */
 	NUMA_TRY_MIGRATE,	/* pages to try to migrate via NUMA balancing */
