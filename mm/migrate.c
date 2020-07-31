@@ -3082,14 +3082,13 @@ static int establish_migrate_target(int node, nodemask_t *used)
  * with itself.  Exclusion is provided by memory hotplug events
  * being single-threaded.
  */
-void set_migration_target_nodes(void)
+static void __set_migration_target_nodes(void)
 {
 	nodemask_t next_pass	= NODE_MASK_NONE;
 	nodemask_t this_pass	= NODE_MASK_NONE;
 	nodemask_t used_targets = NODE_MASK_NONE;
 	int node;
 
-	get_online_mems();
 	/*
 	 * Avoid any oddities like cycles that could occur
 	 * from changes in the topology.  This will leave
@@ -3141,6 +3140,12 @@ again:
 	if (!nodes_empty(next_pass))
 		goto again;
 
+}
+
+static void set_migration_target_nodes(void)
+{
+	get_online_mems();
+	__set_migration_target_nodes();
 	put_online_mems();
 }
 
@@ -3190,14 +3195,14 @@ static int __meminit migrate_on_reclaim_callback(struct notifier_block *self,
 		 * Recalculate the target nodes once the node
 		 * reaches its final state (online or offline).
 		 */
-		set_migration_target_nodes();
+		__set_migration_target_nodes();
 		break;
 	case MEM_CANCEL_OFFLINE:
 		/*
 		 * MEM_GOING_OFFLINE disabled all the migration
 		 * targets.  Reenable them.
 		 */
-		set_migration_target_nodes();
+		__set_migration_target_nodes();
 		break;
 	case MEM_GOING_ONLINE:
 	case MEM_CANCEL_ONLINE:
