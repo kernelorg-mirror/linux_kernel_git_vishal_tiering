@@ -253,6 +253,7 @@ struct mem_cgroup {
 	/* Legacy consumer-oriented counters */
 	struct page_counter kmem;		/* v1 only */
 	struct page_counter tcpmem;		/* v1 only */
+	struct page_counter toptier;
 
 	/* Range enforcement for interrupt charges */
 	struct work_struct high_work;
