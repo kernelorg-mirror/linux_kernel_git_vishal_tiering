@@ -254,6 +254,13 @@ struct cgroup_subsys_state *vmpressure_to_css(struct vmpressure *vmpr)
 	return &container_of(vmpr, struct mem_cgroup, vmpressure)->css;
 }
 
+static inline bool top_tier(struct page *page)
+{
+	int nid = page_to_nid(page);
+
+	return node_state(nid, N_TOPTIER);
+}
+
 #ifdef CONFIG_MEMCG_KMEM
 extern spinlock_t css_set_lock;
 
@@ -951,6 +958,23 @@ static void mem_cgroup_charge_statistics(struct mem_cgroup *memcg,
 	}
 
 	__this_cpu_add(memcg->vmstats_percpu->nr_page_events, nr_pages);
+}
+
+static inline void mem_cgroup_charge_toptier(struct mem_cgroup *memcg,
+					 struct page *page,
+					 int nr_pages)
+{
+	if (!top_tier(page))
+		return;
+
+	if (nr_pages >= 0)
+		page_counter_charge(&memcg->toptier,
+				   (unsigned long) nr_pages);
+	else {
+		nr_pages = -nr_pages;
+		page_counter_uncharge(&memcg->toptier,
+				   (unsigned long) nr_pages);
+	}
 }
 
 static bool mem_cgroup_event_ratelimit(struct mem_cgroup *memcg,
@@ -2849,6 +2873,7 @@ static void commit_charge(struct page *page, struct mem_cgroup *memcg)
 	 * - exclusive reference
 	 */
 	page->mem_cgroup = memcg;
+	mem_cgroup_charge_toptier(memcg, page, thp_nr_pages(page));
 }
 
 #ifdef CONFIG_MEMCG_KMEM
@@ -3047,6 +3072,7 @@ int __memcg_kmem_charge_page(struct page *page, gfp_t gfp, int order)
 		ret = __memcg_kmem_charge(memcg, gfp, 1 << order);
 		if (!ret) {
 			page->mem_cgroup = memcg;
+			mem_cgroup_charge_toptier(memcg, page, 1 << order);
 			__SetPageKmemcg(page);
 			return 0;
 		}
@@ -3070,6 +3096,7 @@ void __memcg_kmem_uncharge_page(struct page *page, int order)
 
 	VM_BUG_ON_PAGE(mem_cgroup_is_root(memcg), page);
 	__memcg_kmem_uncharge(memcg, nr_pages);
+	mem_cgroup_charge_toptier(memcg, page, -nr_pages);
 	page->mem_cgroup = NULL;
 	css_put(&memcg->css);
 
@@ -5342,12 +5369,14 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 		page_counter_init(&memcg->memory, &parent->memory);
 		page_counter_init(&memcg->swap, &parent->swap);
 		page_counter_init(&memcg->memsw, &parent->memsw);
+		page_counter_init(&memcg->toptier, &parent->toptier);
 		page_counter_init(&memcg->kmem, &parent->kmem);
 		page_counter_init(&memcg->tcpmem, &parent->tcpmem);
 	} else {
 		page_counter_init(&memcg->memory, NULL);
 		page_counter_init(&memcg->swap, NULL);
 		page_counter_init(&memcg->memsw, NULL);
+		page_counter_init(&memcg->toptier, NULL);
 		page_counter_init(&memcg->kmem, NULL);
 		page_counter_init(&memcg->tcpmem, NULL);
 		/*
@@ -5726,6 +5755,8 @@ static int mem_cgroup_move_account(struct page *page,
 	css_put(&from->css);
 
 	page->mem_cgroup = to;
+	mem_cgroup_charge_toptier(to, page, nr_pages);
+	mem_cgroup_charge_toptier(from, page, -nr_pages);
 
 	__unlock_page_memcg(from);
 
@@ -6798,6 +6829,7 @@ struct uncharge_gather {
 	unsigned long nr_pages;
 	unsigned long pgpgout;
 	unsigned long nr_kmem;
+	unsigned long nr_toptier;
 	struct page *dummy_page;
 };
 
@@ -6812,6 +6844,7 @@ static void uncharge_batch(const struct uncharge_gather *ug)
 
 	if (!mem_cgroup_is_root(ug->memcg)) {
 		page_counter_uncharge(&ug->memcg->memory, ug->nr_pages);
+		page_counter_uncharge(&ug->memcg->toptier, ug->nr_toptier);
 		if (do_memsw_account())
 			page_counter_uncharge(&ug->memcg->memsw, ug->nr_pages);
 		if (!cgroup_subsys_on_dfl(memory_cgrp_subsys) && ug->nr_kmem)
@@ -6857,6 +6890,8 @@ static void uncharge_page(struct page *page, struct uncharge_gather *ug)
 
 	nr_pages = compound_nr(page);
 	ug->nr_pages += nr_pages;
+	if (top_tier(page))
+		ug->nr_toptier += nr_pages;
 
 	if (!PageKmemcg(page)) {
 		ug->pgpgout++;
@@ -7181,8 +7216,10 @@ void mem_cgroup_swapout(struct page *page, swp_entry_t entry)
 
 	page->mem_cgroup = NULL;
 
-	if (!mem_cgroup_is_root(memcg))
+	if (!mem_cgroup_is_root(memcg)) {
 		page_counter_uncharge(&memcg->memory, nr_entries);
+		mem_cgroup_charge_toptier(memcg, page, -nr_entries);
+	}
 
 	if (!cgroup_memory_noswap && memcg != swap_memcg) {
 		if (!mem_cgroup_is_root(swap_memcg))
