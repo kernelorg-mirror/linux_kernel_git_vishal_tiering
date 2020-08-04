@@ -7432,8 +7432,10 @@ void __init free_area_init(unsigned long *max_zone_pfn)
 		free_area_init_node(nid);
 
 		/* Any memory on that node */
-		if (pgdat->node_present_pages)
+		if (pgdat->node_present_pages) {
 			node_set_state(nid, N_MEMORY);
+			node_set_state(nid, N_TOPTIER);
+		}
 		check_for_memory(pgdat, nid);
 	}
 }
