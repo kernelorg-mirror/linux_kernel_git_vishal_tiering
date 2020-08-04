@@ -36,6 +36,7 @@
 #include <linux/memblock.h>
 #include <linux/compaction.h>
 #include <linux/rmap.h>
+#include <linux/node.h>
 
 #include <asm/tlbflush.h>
 
@@ -703,6 +704,8 @@ static void node_states_set_node(int node, struct memory_notify *arg)
 
 	if (arg->status_change_nid >= 0)
 		node_set_state(node, N_MEMORY);
+
+	node_set_state(node, N_TOPTIER);
 }
 
 static void __meminit resize_zone_range(struct zone *zone, unsigned long start_pfn,
