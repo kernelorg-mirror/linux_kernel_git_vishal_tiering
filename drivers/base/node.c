@@ -1015,6 +1015,7 @@ static struct node_attr node_state_attr[] = {
 #endif
 	[N_MEMORY] = _NODE_ATTR(has_memory, N_MEMORY),
 	[N_CPU] = _NODE_ATTR(has_cpu, N_CPU),
+	[N_TOPTIER] = _NODE_ATTR(is_toptier, N_TOPTIER),
 };
 
 static struct attribute *node_state_attrs[] = {
@@ -1026,6 +1027,7 @@ static struct attribute *node_state_attrs[] = {
 #endif
 	&node_state_attr[N_MEMORY].attr.attr,
 	&node_state_attr[N_CPU].attr.attr,
+	&node_state_attr[N_TOPTIER].attr.attr,
 	NULL
 };
 
