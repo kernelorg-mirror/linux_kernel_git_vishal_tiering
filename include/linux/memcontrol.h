@@ -210,6 +210,7 @@ struct mem_cgroup {
 
 	/* Legacy consumer-oriented counters */
 	struct page_counter memsw;
+	struct page_counter toptier;
 	struct page_counter kmem;
 	struct page_counter tcpmem;
 
