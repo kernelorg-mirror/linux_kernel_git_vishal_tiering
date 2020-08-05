@@ -112,6 +112,7 @@ static int sixty = 60;
 #endif
 
 static int __maybe_unused neg_one = -1;
+static int __maybe_unused one = 1;
 static int __maybe_unused two = 2;
 static int __maybe_unused three = 3;
 static int __maybe_unused four = 4;
@@ -2955,6 +2956,15 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= watermark_scale_factor_sysctl_handler,
 		.extra1		= SYSCTL_ONE,
 		.extra2		= &one_thousand,
+	},
+	{
+		.procname       = "toptier_scale_factor",
+		.data           = &toptier_scale_factor,
+		.maxlen         = sizeof(toptier_scale_factor),
+		.mode           = 0644,
+		.proc_handler   = toptier_scale_factor_sysctl_handler,
+		.extra1         = &one,
+		.extra2         = &ten_thousand,
 	},
 	{
 		.procname	= "percpu_pagelist_fraction",
