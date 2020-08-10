@@ -58,6 +58,7 @@
 
 #include <linux/swapops.h>
 #include <linux/balloon_compaction.h>
+#include <linux/sched/sysctl.h>
 
 #include "internal.h"
 
@@ -315,7 +316,7 @@ static inline bool can_reclaim_anon_pages(struct mem_cgroup *memcg,
 	 * memcg so should not be performed when in memcg
 	 * reclaim.
 	 */
-	if ((sc && cgroup_reclaim(sc)) && (next_demotion_node(node_id) >= 0))
+	if ((!sc || !cgroup_reclaim(sc)) && (next_demotion_node(node_id) >= 0))
 		return true;
 
 	/* No way to reclaim anon pages */
@@ -1179,9 +1180,9 @@ static unsigned int demote_page_list(struct list_head *ret_list,
 	}
 
 	if (current_is_kswapd())
-		__count_vm_events(PGDEMOTE_KSWAPD, nr_succeeded);
+		__mod_node_page_state(pgdat, PGDEMOTE_KSWAPD, nr_succeeded);
 	else
-		__count_vm_events(PGDEMOTE_DIRECT, nr_succeeded);
+		__mod_node_page_state(pgdat, PGDEMOTE_DIRECT, nr_succeeded);
 
 	return nr_succeeded;
 }
@@ -1560,8 +1561,8 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 				goto keep_locked;
 			}
 
-			count_vm_event(PGLAZYFREED);
-			count_memcg_page_event(page, PGLAZYFREED);
+			inc_node_page_state(page, PGLAZYFREED);
+			inc_memcg_page_state(page, PGLAZYFREED);
 		} else if (!mapping || !__remove_mapping(mapping, page, true,
 							 sc->target_mem_cgroup))
 			goto keep_locked;
@@ -1603,7 +1604,7 @@ activate_locked:
 			int type = page_is_file_lru(page);
 			SetPageActive(page);
 			stat->nr_activate[type] += nr_pages;
-			count_memcg_page_event(page, PGACTIVATE);
+			inc_memcg_page_state(page, PGACTIVATE);
 		}
 keep_locked:
 		unlock_page(page);
@@ -1622,7 +1623,7 @@ keep:
 	free_unref_page_list(&free_pages);
 
 	list_splice(&ret_pages, page_list);
-	count_vm_events(PGACTIVATE, pgactivate);
+	mod_node_page_state(pgdat, PGACTIVATE, pgactivate);
 
 	return nr_reclaimed;
 }
@@ -2083,8 +2084,8 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
 	item = current_is_kswapd() ? PGSCAN_KSWAPD : PGSCAN_DIRECT;
 	if (!cgroup_reclaim(sc))
-		__count_vm_events(item, nr_scanned);
-	__count_memcg_events(lruvec_memcg(lruvec), item, nr_scanned);
+		__mod_node_page_state(pgdat, item, nr_scanned);
+	__mod_memcg_state(lruvec_memcg(lruvec), item, nr_scanned);
 	__count_vm_events(PGSCAN_ANON + file, nr_scanned);
 
 	spin_unlock_irq(&pgdat->lru_lock);
@@ -2103,8 +2104,8 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	lru_note_cost(lruvec, file, stat.nr_pageout);
 	item = current_is_kswapd() ? PGSTEAL_KSWAPD : PGSTEAL_DIRECT;
 	if (!cgroup_reclaim(sc))
-		__count_vm_events(item, nr_reclaimed);
-	__count_memcg_events(lruvec_memcg(lruvec), item, nr_reclaimed);
+		__mod_node_page_state(pgdat, item, nr_reclaimed);
+	__mod_memcg_state(lruvec_memcg(lruvec), item, nr_reclaimed);
 	__count_vm_events(PGSTEAL_ANON + file, nr_reclaimed);
 
 	spin_unlock_irq(&pgdat->lru_lock);
@@ -2166,8 +2167,8 @@ static void shrink_active_list(unsigned long nr_to_scan,
 
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
 
-	__count_vm_events(PGREFILL, nr_scanned);
-	__count_memcg_events(lruvec_memcg(lruvec), PGREFILL, nr_scanned);
+	__mod_node_page_state(pgdat, PGREFILL, nr_scanned);
+	__mod_memcg_state(lruvec_memcg(lruvec), PGREFILL, nr_scanned);
 
 	spin_unlock_irq(&pgdat->lru_lock);
 
@@ -2222,8 +2223,8 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	/* Keep all free pages in l_active list */
 	list_splice(&l_inactive, &l_active);
 
-	__count_vm_events(PGDEACTIVATE, nr_deactivate);
-	__count_memcg_events(lruvec_memcg(lruvec), PGDEACTIVATE, nr_deactivate);
+	__mod_node_page_state(pgdat, PGDEACTIVATE, nr_deactivate);
+	__mod_memcg_state(lruvec_memcg(lruvec), PGDEACTIVATE, nr_deactivate);
 
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, -nr_taken);
 	spin_unlock_irq(&pgdat->lru_lock);
@@ -3538,6 +3539,12 @@ static bool pgdat_watermark_boosted(pg_data_t *pgdat, int highest_zoneidx)
 }
 
 /*
+ * Keep the free pages on fast memory node a little more than the high
+ * watermark to accommodate the promoted pages.
+ */
+#define NUMA_BALANCING_ADDON_WATERMARK		(10UL * 1024 * 1024 >> PAGE_SHIFT)
+
+/*
  * Returns true if there is an eligible zone balanced for the request order
  * and highest_zoneidx
  */
@@ -3558,6 +3565,14 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int highest_zoneidx)
 			continue;
 
 		mark = high_wmark_pages(zone);
+		if (sysctl_numa_balancing_mode & NUMA_BALANCING_MEMORY_TIERING &&
+		    next_demotion_node(pgdat->node_id) != NUMA_NO_NODE) {
+			unsigned long addon_mark;
+
+			addon_mark = min(NUMA_BALANCING_ADDON_WATERMARK,
+					 pgdat->node_present_pages >> 6);
+			mark += addon_mark;
+		}
 		if (zone_watermark_ok_safe(zone, order, mark, highest_zoneidx))
 			return true;
 	}
@@ -3696,7 +3711,7 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int highest_zoneidx)
 	psi_memstall_enter(&pflags);
 	__fs_reclaim_acquire();
 
-	count_vm_event(PAGEOUTRUN);
+	inc_node_state(pgdat, PAGEOUTRUN);
 
 	/*
 	 * Account for the reclaim boost. Note that the zone boost is left in
@@ -3970,15 +3985,30 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int alloc_order, int reclaim_o
 		 */
 		set_pgdat_percpu_threshold(pgdat, calculate_normal_threshold);
 
-		if (!kthread_should_stop())
-			schedule();
+		if (!kthread_should_stop()) {
+			/*
+			 * In memory tiering mode, try harder to recover from
+			 * kswapd failures, because direct reclaiming may be
+			 * not triggered.
+			 */
+			if (sysctl_numa_balancing_mode & NUMA_BALANCING_MEMORY_TIERING &&
+			    node_is_toptier(pgdat->node_id) &&
+			    pgdat->kswapd_failures >= MAX_RECLAIM_RETRIES) {
+				remaining = schedule_timeout(10 * HZ);
+				if (!remaining) {
+					pgdat->kswapd_highest_zoneidx = ZONE_MOVABLE;
+					pgdat->kswapd_order = 0;
+				}
+			} else
+				schedule();
+		}
 
 		set_pgdat_percpu_threshold(pgdat, calculate_pressure_threshold);
 	} else {
 		if (remaining)
-			count_vm_event(KSWAPD_LOW_WMARK_HIT_QUICKLY);
+			inc_node_state(pgdat, KSWAPD_LOW_WMARK_HIT_QUICKLY);
 		else
-			count_vm_event(KSWAPD_HIGH_WMARK_HIT_QUICKLY);
+			inc_node_state(pgdat, KSWAPD_HIGH_WMARK_HIT_QUICKLY);
 	}
 	finish_wait(&pgdat->kswapd_wait, &wait);
 }

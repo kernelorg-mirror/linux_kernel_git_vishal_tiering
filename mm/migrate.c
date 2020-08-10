@@ -50,6 +50,8 @@
 #include <linux/ptrace.h>
 #include <linux/oom.h>
 #include <linux/memory.h>
+#include <linux/sched/sysctl.h>
+#include <linux/sched/numa_balancing.h>
 
 #include <asm/tlbflush.h>
 
@@ -408,6 +410,9 @@ int migrate_page_move_mapping(struct address_space *mapping,
 	int dirty;
 	int expected_count = expected_page_refs(mapping, page) + extra_count;
 
+	if (page_count(page) != expected_count)
+		count_vm_events(PGMIGRATE_REFCOUNT_FAIL, hpage_nr_pages(page));
+
 	if (!mapping) {
 		/* Anonymous page without mapping */
 		if (page_count(page) != expected_count)
@@ -640,6 +645,18 @@ void migrate_page_states(struct page *newpage, struct page *page)
 	 * future migrations of this same page.
 	 */
 	cpupid = page_cpupid_xchg_last(page, -1);
+	/*
+	 * If migrate between slow and fast memory node, reset cpupid,
+	 * because that is used to record page access time in slow
+	 * memory node
+	 */
+	if (sysctl_numa_balancing_mode & NUMA_BALANCING_MEMORY_TIERING) {
+		bool f_toptier = node_is_toptier(page_to_nid(page));
+		bool t_toptier = node_is_toptier(page_to_nid(newpage));
+
+		if (f_toptier != t_toptier)
+			cpupid = -1;
+	}
 	page_cpupid_xchg_last(newpage, cpupid);
 
 	ksm_migrate_page(newpage, page);
@@ -1166,6 +1183,33 @@ int next_demotion_node(int node)
 }
 
 /*
+ * Return true if the caller has lost the reference to the page,
+ * otherwise return false.
+ */
+bool promote_file_page(struct page *page, int flags)
+{
+	int nid = page_to_nid(page);
+
+	if (!(sysctl_numa_balancing_mode & NUMA_BALANCING_MEMORY_TIERING) ||
+	    node_is_toptier(nid))
+		return false;
+
+	nid = mpol_misplaced(page, NULL, 0, (flags & PFP_WRITE) ? TNF_WRITE : 0);
+	if (nid == NUMA_NO_NODE)
+		return false;
+
+	if (!PageLRU(page))
+		return false;
+
+	if (flags & PFP_LOCKED)
+		unlock_page(page);
+
+	migrate_misplaced_page(page, NULL, nid);
+
+	return true;
+}
+
+/*
  * Obtain the lock on page, remove all ptes and migrate the page
  * to the newly allocated page in newpage.
  */
@@ -1506,6 +1550,9 @@ retry:
 					}
 				}
 				nr_failed++;
+
+				count_vm_events(PGMIGRATE_NOMEM_FAIL,
+						hpage_nr_pages(page));
 				goto out;
 			case -EAGAIN:
 				retry++;
@@ -1926,8 +1973,7 @@ COMPAT_SYSCALL_DEFINE6(move_pages, pid_t, pid, compat_ulong_t, nr_pages,
  * Returns true if this is a safe migration target node for misplaced NUMA
  * pages. Currently it only checks the watermarks which crude
  */
-static bool migrate_balanced_pgdat(struct pglist_data *pgdat,
-				   unsigned long nr_migrate_pages)
+static bool migrate_balanced_pgdat(struct pglist_data *pgdat, int order)
 {
 	int z;
 
@@ -1937,10 +1983,8 @@ static bool migrate_balanced_pgdat(struct pglist_data *pgdat,
 		if (!populated_zone(zone))
 			continue;
 
-		/* Avoid waking kswapd by allocating pages_to_migrate pages. */
-		if (!zone_watermark_ok(zone, 0,
-				       high_wmark_pages(zone) +
-				       nr_migrate_pages,
+		/* Avoid waking kswapd by allocating pages to migrate. */
+		if (!zone_watermark_ok(zone, order, high_wmark_pages(zone),
 				       ZONE_MOVABLE, 0))
 			continue;
 		return true;
@@ -1965,13 +2009,39 @@ static struct page *alloc_misplaced_dst_page(struct page *page,
 
 static int numamigrate_isolate_page(pg_data_t *pgdat, struct page *page)
 {
-	int page_lru;
+	int page_lru, order = compound_order(page);
 
-	VM_BUG_ON_PAGE(compound_order(page) && !PageTransHuge(page), page);
+	VM_BUG_ON_PAGE(order && !PageTransHuge(page), page);
 
 	/* Avoid migrating to a node that is nearly full */
-	if (!migrate_balanced_pgdat(pgdat, compound_nr(page)))
+	if (!migrate_balanced_pgdat(pgdat, order)) {
+		int migration_node, z;
+		pg_data_t *migration_pgdat;
+
+		count_vm_events(PGMIGRATE_DST_NODE_FULL_FAIL,
+			hpage_nr_pages(page));
+
+		if (!(sysctl_numa_balancing_mode & NUMA_BALANCING_MEMORY_TIERING) ||
+		    !(node_reclaim_mode & RECLAIM_MIGRATE))
+			return 0;
+		/*
+		 * The slow memory node need to have enough
+		 * free pages to demote the cold pages in the
+		 * fast memory node to it.
+		 */
+		migration_node = next_demotion_node(pgdat->node_id);
+		if (migration_node == NUMA_NO_NODE)
+			return 0;
+		migration_pgdat = NODE_DATA(migration_node);
+		if (!migrate_balanced_pgdat(migration_pgdat, order))
+			return 0;
+		for (z = pgdat->nr_zones - 1; z >= 0; z--) {
+			if (populated_zone(pgdat->node_zones + z))
+				break;
+		}
+		wakeup_kswapd(pgdat->node_zones + z, 0, order, ZONE_MOVABLE);
 		return 0;
+	}
 
 	if (isolate_lru_page(page))
 		return 0;
@@ -2025,20 +2095,16 @@ int migrate_misplaced_page(struct page *page, struct vm_area_struct *vma,
 	 * Don't migrate file pages that are mapped in multiple processes
 	 * with execute permissions as they are probably shared libraries.
 	 */
-	if (page_mapcount(page) != 1 && page_is_file_lru(page) &&
+	if (vma && page_mapcount(page) != 1 && page_is_file_lru(page) &&
 	    (vma->vm_flags & VM_EXEC))
 		goto out;
 
-	/*
-	 * Also do not migrate dirty pages as not all filesystems can move
-	 * dirty pages in MIGRATE_ASYNC mode which is a waste of cycles.
-	 */
-	if (page_is_file_lru(page) && PageDirty(page))
-		goto out;
-
 	isolated = numamigrate_isolate_page(pgdat, page);
-	if (!isolated)
+	if (!isolated) {
+		count_vm_events(PGMIGRATE_NUMA_ISOLATE_FAIL,
+					hpage_nr_pages(page));
 		goto out;
+	}
 
 	list_add(&page->lru, &migratepages);
 	nr_remaining = migrate_pages(&migratepages, alloc_misplaced_dst_page,
@@ -2081,18 +2147,20 @@ int migrate_misplaced_transhuge_page(struct mm_struct *mm,
 	int page_lru = page_is_file_lru(page);
 	unsigned long start = address & HPAGE_PMD_MASK;
 
+	isolated = numamigrate_isolate_page(pgdat, page);
+	if (!isolated) {
+		count_vm_events(PGMIGRATE_NUMA_ISOLATE_FAIL, HPAGE_PMD_NR);
+		goto out_fail;
+	}
+
 	new_page = alloc_pages_node(node,
 		(GFP_TRANSHUGE_LIGHT | __GFP_THISNODE),
 		HPAGE_PMD_ORDER);
-	if (!new_page)
-		goto out_fail;
-	prep_transhuge_page(new_page);
-
-	isolated = numamigrate_isolate_page(pgdat, page);
-	if (!isolated) {
-		put_page(new_page);
+	if (!new_page) {
+		count_vm_events(PGMIGRATE_NOMEM_FAIL, HPAGE_PMD_NR);
 		goto out_fail;
 	}
+	prep_transhuge_page(new_page);
 
 	/* Prepare a page as a migration target */
 	__SetPageLocked(new_page);
@@ -2120,12 +2188,6 @@ int migrate_misplaced_transhuge_page(struct mm_struct *mm,
 
 		unlock_page(new_page);
 		put_page(new_page);		/* Free it */
-
-		/* Retake the callers reference and putback on LRU */
-		get_page(page);
-		putback_lru_page(page);
-		mod_node_page_state(page_pgdat(page),
-			 NR_ISOLATED_ANON + page_lru, -HPAGE_PMD_NR);
 
 		goto out_unlock;
 	}
@@ -2191,6 +2253,13 @@ out_fail:
 	spin_unlock(ptl);
 
 out_unlock:
+	if (isolated) {
+		/* Retake the callers reference and putback on LRU */
+		get_page(page);
+		putback_lru_page(page);
+		mod_node_page_state(page_pgdat(page),
+			 NR_ISOLATED_ANON + page_lru, -HPAGE_PMD_NR);
+	}
 	unlock_page(page);
 	put_page(page);
 	return 0;
@@ -3082,14 +3151,13 @@ static int establish_migrate_target(int node, nodemask_t *used)
  * with itself.  Exclusion is provided by memory hotplug events
  * being single-threaded.
  */
-void set_migration_target_nodes(void)
+static void __set_migration_target_nodes(void)
 {
 	nodemask_t next_pass	= NODE_MASK_NONE;
 	nodemask_t this_pass	= NODE_MASK_NONE;
 	nodemask_t used_targets = NODE_MASK_NONE;
 	int node;
 
-	get_online_mems();
 	/*
 	 * Avoid any oddities like cycles that could occur
 	 * from changes in the topology.  This will leave
@@ -3141,6 +3209,12 @@ again:
 	if (!nodes_empty(next_pass))
 		goto again;
 
+}
+
+static void set_migration_target_nodes(void)
+{
+	get_online_mems();
+	__set_migration_target_nodes();
 	put_online_mems();
 }
 
@@ -3190,14 +3264,14 @@ static int __meminit migrate_on_reclaim_callback(struct notifier_block *self,
 		 * Recalculate the target nodes once the node
 		 * reaches its final state (online or offline).
 		 */
-		set_migration_target_nodes();
+		__set_migration_target_nodes();
 		break;
 	case MEM_CANCEL_OFFLINE:
 		/*
 		 * MEM_GOING_OFFLINE disabled all the migration
 		 * targets.  Reenable them.
 		 */
-		set_migration_target_nodes();
+		__set_migration_target_nodes();
 		break;
 	case MEM_GOING_ONLINE:
 	case MEM_CANCEL_ONLINE:

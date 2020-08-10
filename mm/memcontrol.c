@@ -1435,21 +1435,21 @@ static char *memory_stat_format(struct mem_cgroup *memcg)
 		       memcg_page_state(memcg, WORKINGSET_NODERECLAIM));
 
 	seq_buf_printf(&s, "%s %lu\n",  vm_event_name(PGREFILL),
-		       memcg_events(memcg, PGREFILL));
+		       memcg_page_state(memcg, PGREFILL));
 	seq_buf_printf(&s, "pgscan %lu\n",
-		       memcg_events(memcg, PGSCAN_KSWAPD) +
-		       memcg_events(memcg, PGSCAN_DIRECT));
+		       memcg_page_state(memcg, PGSCAN_KSWAPD) +
+		       memcg_page_state(memcg, PGSCAN_DIRECT));
 	seq_buf_printf(&s, "pgsteal %lu\n",
-		       memcg_events(memcg, PGSTEAL_KSWAPD) +
-		       memcg_events(memcg, PGSTEAL_DIRECT));
+		       memcg_page_state(memcg, PGSTEAL_KSWAPD) +
+		       memcg_page_state(memcg, PGSTEAL_DIRECT));
 	seq_buf_printf(&s, "%s %lu\n", vm_event_name(PGACTIVATE),
-		       memcg_events(memcg, PGACTIVATE));
+		       memcg_page_state(memcg, PGACTIVATE));
 	seq_buf_printf(&s, "%s %lu\n", vm_event_name(PGDEACTIVATE),
-		       memcg_events(memcg, PGDEACTIVATE));
+		       memcg_page_state(memcg, PGDEACTIVATE));
 	seq_buf_printf(&s, "%s %lu\n", vm_event_name(PGLAZYFREE),
 		       memcg_events(memcg, PGLAZYFREE));
 	seq_buf_printf(&s, "%s %lu\n", vm_event_name(PGLAZYFREED),
-		       memcg_events(memcg, PGLAZYFREED));
+		       memcg_page_state(memcg, PGLAZYFREED));
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	seq_buf_printf(&s, "%s %lu\n", vm_event_name(THP_FAULT_ALLOC),
@@ -3112,6 +3112,7 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 	struct mem_cgroup_tree_per_node *mctz;
 	unsigned long excess;
 	unsigned long nr_scanned;
+	int migration_nid;
 
 	if (order > 0)
 		return 0;
@@ -3125,6 +3126,23 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 	 */
 	if (!mctz || RB_EMPTY_ROOT(&mctz->rb_root))
 		return 0;
+
+	/*
+	 * Try to reclaim from the slow memory node if possible, to
+	 * reclaim instead of demote and to reclaim the colder pages
+	 * firstly.
+	 */
+	migration_nid = next_demotion_node(pgdat->node_id);
+	if (migration_nid != -1) {
+		struct mem_cgroup_tree_per_node *mmctz;
+
+		mmctz = soft_limit_tree_node(migration_nid);
+		if (mmctz && !RB_EMPTY_ROOT(&mmctz->rb_root)) {
+			pgdat = NODE_DATA(migration_nid);
+			return mem_cgroup_soft_limit_reclaim(pgdat, order,
+				gfp_mask, total_scanned);
+		}
+	}
 
 	/*
 	 * This loop can run a while, specially if mem_cgroup's continuously
