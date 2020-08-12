@@ -3589,7 +3589,7 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 	 * firstly.
 	 */
 	migration_nid = next_demotion_node(pgdat->node_id);
-	if (migration_nid != -1) {
+	if (migration_nid != -1 && type == N_MEMORY) {
 		struct mem_cgroup_tree_per_node *mmctz;
 
 		mmctz = soft_limit_tree_node(migration_nid, type);
