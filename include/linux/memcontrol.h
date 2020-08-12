@@ -21,6 +21,7 @@
 #include <linux/vmstat.h>
 #include <linux/writeback.h>
 #include <linux/page-flags.h>
+#include <linux/nodemask.h>
 
 struct mem_cgroup;
 struct page;
@@ -130,6 +131,15 @@ struct mem_cgroup_per_node {
 	unsigned long		usage_in_excess;/* Set to the value by which */
 						/* the soft limit is exceeded*/
 	bool			on_tree;
+
+	struct rb_node		toptier_tree_node;	 /* RB tree node */
+	unsigned long		toptier_usage_in_excess; /* Set to the value by which */
+						         /* the soft limit is exceeded*/
+	bool			on_toptier_tree;
+
+	bool			congested;	/* memcg has many dirty pages */
+						/* backed by a congested BDI */
+
 	struct mem_cgroup	*memcg;		/* Back pointer, we cannot */
 						/* use container_of	   */
 };
@@ -210,6 +220,7 @@ struct mem_cgroup {
 
 	/* Legacy consumer-oriented counters */
 	struct page_counter memsw;
+	struct page_counter toptier;
 	struct page_counter kmem;
 	struct page_counter tcpmem;
 
@@ -217,6 +228,7 @@ struct mem_cgroup {
 	struct work_struct high_work;
 
 	unsigned long soft_limit;
+	unsigned long toptier_soft_limit;
 
 	/* vmpressure notifications */
 	struct vmpressure vmpressure;
@@ -723,7 +735,8 @@ static inline void mod_lruvec_page_state(struct page *page,
 
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 						gfp_t gfp_mask,
-						unsigned long *total_scanned);
+						unsigned long *total_scanned,
+						enum node_states type);
 
 void __count_memcg_events(struct mem_cgroup *memcg, enum vm_event_item idx,
 			  unsigned long count);
@@ -1095,8 +1108,9 @@ static inline void mod_memcg_obj_state(void *p, int idx, int val)
 
 static inline
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
-					    gfp_t gfp_mask,
-					    unsigned long *total_scanned)
+						gfp_t gfp_mask,
+						unsigned long *total_scanned,
+						enum node_states type)
 {
 	return 0;
 }

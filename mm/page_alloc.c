@@ -3403,6 +3403,10 @@ out:
 	if (test_bit(ZONE_BOOSTED_WATERMARK, &zone->flags)) {
 		clear_bit(ZONE_BOOSTED_WATERMARK, &zone->flags);
 		wakeup_kswapd(zone, 0, 0, zone_idx(zone));
+	} else if (!pgdat_toptier_balanced(zone->zone_pgdat, order, zone_idx(zone))) {
+		trace_printk("wakeup kswapd, unbalanced toptier node %d zone idx %d\n",
+				zone->zone_pgdat->node_id, (int) zone_idx(zone));
+		wakeup_kswapd(zone, 0, 0, zone_idx(zone));
 	}
 
 	VM_BUG_ON_PAGE(page && bad_range(zone, page), page);
@@ -3609,13 +3613,18 @@ static inline bool zone_watermark_fast(struct zone *z, unsigned int order,
 bool zone_watermark_ok_safe(struct zone *z, unsigned int order,
 			unsigned long mark, int highest_zoneidx)
 {
+	int ret;
+
 	long free_pages = zone_page_state(z, NR_FREE_PAGES);
 
 	if (z->percpu_drift_mark && free_pages < z->percpu_drift_mark)
 		free_pages = zone_page_state_snapshot(z, NR_FREE_PAGES);
 
-	return __zone_watermark_ok(z, order, mark, highest_zoneidx, 0,
+	ret = __zone_watermark_ok(z, order, mark, highest_zoneidx, 0,
 								free_pages);
+	trace_printk("zone watermark ok: %d node %d zone idx %d free_pages %ld mark %ld\n",
+			ret, z->zone_pgdat->node_id, (int) zone_idx(z), free_pages, (long) mark);
+	return ret;
 }
 
 #ifdef CONFIG_NUMA
@@ -7432,8 +7441,10 @@ void __init free_area_init(unsigned long *max_zone_pfn)
 		free_area_init_node(nid);
 
 		/* Any memory on that node */
-		if (pgdat->node_present_pages)
+		if (pgdat->node_present_pages) {
 			node_set_state(nid, N_MEMORY);
+			node_set_state(nid, N_TOPTIER);
+		}
 		check_for_memory(pgdat, nid);
 	}
 }
@@ -7805,6 +7816,20 @@ static void __setup_per_zone_wmarks(void)
 		zone->_watermark[WMARK_LOW]  = min_wmark_pages(zone) + tmp;
 		zone->_watermark[WMARK_HIGH] = min_wmark_pages(zone) + tmp * 2;
 
+		tmp = mult_frac(zone_managed_pages(zone),
+				toptier_scale_factor, 10000);
+		/*
+		 * Clamp toptier watermark between twice high watermark
+		 * and max managed pages.
+		 */
+		if (tmp < 2 * zone->_watermark[WMARK_HIGH])
+			tmp = 2 * zone->_watermark[WMARK_HIGH];
+		if (tmp > zone_managed_pages(zone))
+			tmp = zone_managed_pages(zone);
+		zone->_watermark[WMARK_TOPTIER] = tmp;
+
+		zone->watermark_boost = 0;
+
 		spin_unlock_irqrestore(&zone->lock, flags);
 	}
 
@@ -7912,6 +7937,21 @@ int watermark_scale_factor_sysctl_handler(struct ctl_table *table, int write,
 	rc = proc_dointvec_minmax(table, write, buffer, length, ppos);
 	if (rc)
 		return rc;
+
+	if (write)
+		setup_per_zone_wmarks();
+
+	return 0;
+}
+
+int toptier_scale_factor_sysctl_handler(struct ctl_table *table, int write,
+	void __user *buffer, size_t *length, loff_t *ppos)
+{
+	int rc;
+
+	rc = proc_dointvec_minmax(table, write, buffer, length, ppos);
+	if (rc)
+	       return rc;
 
 	if (write)
 		setup_per_zone_wmarks();

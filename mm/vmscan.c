@@ -193,6 +193,7 @@ static void set_task_reclaim_state(struct task_struct *task,
 
 static LIST_HEAD(shrinker_list);
 static DECLARE_RWSEM(shrinker_rwsem);
+int toptier_scale_factor = 2000;
 
 #ifdef CONFIG_MEMCG
 /*
@@ -3095,7 +3096,7 @@ static void shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 			nr_soft_scanned = 0;
 			nr_soft_reclaimed = mem_cgroup_soft_limit_reclaim(zone->zone_pgdat,
 						sc->order, sc->gfp_mask,
-						&nr_soft_scanned);
+						&nr_soft_scanned, N_MEMORY);
 			sc->nr_reclaimed += nr_soft_reclaimed;
 			sc->nr_scanned += nr_soft_scanned;
 			/* need some check for avoid more shrink_zone() */
@@ -3588,6 +3589,53 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int highest_zoneidx)
 	return false;
 }
 
+bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx)
+{
+	int i;
+	unsigned long mark = -1;
+	struct zone *zone;
+
+	if (!node_state(pgdat->node_id, N_TOPTIER) ||
+	    next_demotion_node(pgdat->node_id) == -1 ||
+	    order > 0 || classzone_idx < ZONE_NORMAL)
+		return true;
+
+	/*
+	 * Check watermarks bottom-up as lower zones are more likely to
+	 * meet watermarks.  Only look at ZONE_NORMAL upwards.
+	 */
+	for (i = ZONE_NORMAL; i <= classzone_idx; i++) {
+		int wmark_ok = 0;
+
+		zone = pgdat->node_zones + i;
+
+		if (!managed_zone(zone))
+			continue;
+
+		mark = toptier_wmark_pages(zone);
+		if (mark > zone_managed_pages(zone)) {
+			wmark_ok = 1;
+		}
+		if (zone_watermark_ok_safe(zone, order, mark, classzone_idx)) {
+			wmark_ok = 2;
+		}
+		trace_printk("pgdat_toptier_balanced: node %d zone %d (NORMAL %d) wmark_ok %d\n",
+				pgdat->node_id, i, (int) ZONE_NORMAL, wmark_ok);
+		if (wmark_ok > 0)
+			return true;
+	}
+
+	/*
+	 * If a node has no populated zone within classzone_idx, it does not
+	 * need balancing by definition. This can happen if a zone-restricted
+	 * allocation tries to wake a remote kswapd.
+	 */
+	if (mark == -1)
+		return true;
+
+	return false;
+}
+
 /* Clear pgdat state for congested, dirty or under writeback. */
 static void clear_pgdat_congested(pg_data_t *pgdat)
 {
@@ -3813,7 +3861,7 @@ restart:
 		sc.nr_scanned = 0;
 		nr_soft_scanned = 0;
 		nr_soft_reclaimed = mem_cgroup_soft_limit_reclaim(pgdat, sc.order,
-						sc.gfp_mask, &nr_soft_scanned);
+						sc.gfp_mask, &nr_soft_scanned, N_MEMORY);
 		sc.nr_reclaimed += nr_soft_reclaimed;
 
 		/*
@@ -4013,6 +4061,48 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int alloc_order, int reclaim_o
 	finish_wait(&pgdat->kswapd_wait, &wait);
 }
 
+static bool toptier_soft_reclaim(pg_data_t *pgdat,
+			      unsigned int alloc_order,
+			      unsigned int reclaim_order,
+			      unsigned int classzone_idx)
+{
+	unsigned long nr_soft_scanned, nr_soft_reclaimed;
+	int ret;
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.order = reclaim_order,
+		.may_unmap = 1,
+	};
+
+	if (!node_state(pgdat->node_id, N_TOPTIER) || kthread_should_stop())
+		return false;
+
+	set_task_reclaim_state(current, &sc.reclaim_state);
+
+	trace_printk("toptier soft reclaim begin\n");
+	if (!pgdat_toptier_balanced(pgdat, alloc_order, classzone_idx)) {
+		nr_soft_scanned = 0;
+		nr_soft_reclaimed = mem_cgroup_soft_limit_reclaim(pgdat,
+					alloc_order, GFP_KERNEL,
+					&nr_soft_scanned, N_TOPTIER);
+		trace_printk("top tier soft reclaim: node %d zone %d reclaimed %ld\n",
+			pgdat->node_id, classzone_idx, (long) nr_soft_reclaimed);
+	}
+
+	set_task_reclaim_state(current, NULL);
+
+	if (prepare_kswapd_sleep(pgdat, reclaim_order, classzone_idx) &&
+	   !kthread_should_stop())
+		ret = true;
+	else
+		ret = false;
+	trace_printk("top tier soft reclaim end: node %d balanced: %d ret = %d\n",
+			pgdat->node_id,
+			(int) pgdat_toptier_balanced(pgdat, alloc_order, classzone_idx),
+			ret);
+	return ret;
+}
+
 /*
  * The background pageout daemon, started as a kernel thread
  * from the init process.
@@ -4071,6 +4161,10 @@ kswapd_try_sleep:
 							highest_zoneidx);
 		WRITE_ONCE(pgdat->kswapd_order, 0);
 		WRITE_ONCE(pgdat->kswapd_highest_zoneidx, MAX_NR_ZONES);
+
+		if (toptier_soft_reclaim(pgdat, alloc_order, reclaim_order,
+					highest_zoneidx))
+			goto kswapd_try_sleep;
 
 		ret = try_to_freeze();
 		if (kthread_should_stop())
@@ -4137,7 +4231,8 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 
 	/* Hopeless node, leave it to direct reclaim if possible */
 	if (pgdat->kswapd_failures >= MAX_RECLAIM_RETRIES ||
-	    (pgdat_balanced(pgdat, order, highest_zoneidx) &&
+	    (pgdat_toptier_balanced(pgdat, order, highest_zoneidx) &&
+	     pgdat_balanced(pgdat, order, highest_zoneidx) &&
 	     !pgdat_watermark_boosted(pgdat, highest_zoneidx))) {
 		/*
 		 * There may be plenty of free memory available, but it's too
