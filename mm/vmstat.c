@@ -1252,6 +1252,7 @@ const char * const vmstat_text[] = {
 	"pgsteal_direct",
 	"pgdemote_kswapd",
 	"pgdemote_direct",
+	"pgdemote_file",
 	"pgscan_kswapd",
 	"pgscan_direct",
 	"pgscan_direct_throttle",
