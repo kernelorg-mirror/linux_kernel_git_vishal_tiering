@@ -7163,6 +7163,8 @@ static int mem_update_toptier(void *data)
 	to_toptier = work->to_toptier;
 	count = 0;
 
+	printk("memcgroup update toptier node %d to_toptier %d\n", nid, to_toptier);
+
 	if (to_toptier) {
 		if (node_state(nid, N_TOPTIER))
 			return 0;
@@ -7183,6 +7185,7 @@ static int mem_update_toptier(void *data)
 				count += pn->lru_zone_size[zid][lru];
 			}
 		}
+		printk("Add/Remove %ld pages to memcg %llx toptier\n", count, (long long) memcg);
 		if (to_toptier)
 			atomic_long_add(count, &memcg->toptier.usage);
 		else {
@@ -7199,6 +7202,7 @@ void mem_set_toptier_status(int nid, bool to_toptier)
 {
 	struct mem_node_tier_update_work work;
 
+	printk("set toptier node %d status to %d, cur node toptier:%d \n", nid, (int) to_toptier, node_state(nid, N_TOPTIER)? 1:0);
 	if (to_toptier && node_state(nid, N_TOPTIER))
 		return;
 
@@ -7207,6 +7211,7 @@ void mem_set_toptier_status(int nid, bool to_toptier)
 
 	work.nid = nid;
 	work.to_toptier = to_toptier;
+	printk("call stop machine node %d status to %d", nid, (int) to_toptier);
 
 	stop_machine(mem_update_toptier, (void *) &work, NULL);
 }
