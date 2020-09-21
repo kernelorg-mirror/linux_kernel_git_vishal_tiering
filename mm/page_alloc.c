@@ -7465,7 +7465,7 @@ void __init free_area_init(unsigned long *max_zone_pfn)
 		/* Any memory on that node */
 		if (pgdat->node_present_pages) {
 			node_set_state(nid, N_MEMORY);
-			node_set_state(nid, N_TOPTIER);
+			mem_set_toptier_status(nid, true);
 		}
 		check_for_memory(pgdat, nid);
 	}

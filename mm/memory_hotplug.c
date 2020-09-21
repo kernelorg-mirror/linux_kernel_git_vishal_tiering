@@ -673,10 +673,10 @@ static void node_states_set_node(int node, struct memory_notify *arg)
 	if (arg->status_change_nid_high >= 0)
 		node_set_state(node, N_HIGH_MEMORY);
 
-	if (arg->status_change_nid >= 0)
+	if (arg->status_change_nid >= 0) {
 		node_set_state(node, N_MEMORY);
-
-	node_set_state(node, N_TOPTIER);
+		mem_set_toptier_status(node, true);
+	}
 }
 
 static void __meminit resize_zone_range(struct zone *zone, unsigned long start_pfn,

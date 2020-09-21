@@ -544,6 +544,8 @@ void mem_cgroup_iter_break(struct mem_cgroup *, struct mem_cgroup *);
 int mem_cgroup_scan_tasks(struct mem_cgroup *,
 			  int (*)(struct task_struct *, void *), void *);
 
+void mem_set_toptier_status(int nid, bool toptier);
+
 static inline unsigned short mem_cgroup_id(struct mem_cgroup *memcg)
 {
 	if (mem_cgroup_disabled())
@@ -1282,6 +1284,10 @@ static inline void count_memcg_page_event(struct page *page,
 
 static inline
 void count_memcg_event_mm(struct mm_struct *mm, enum vm_event_item idx)
+{
+}
+
+static inline void mem_set_toptier_status(int nid, bool toptier)
 {
 }
 #endif /* CONFIG_MEMCG */

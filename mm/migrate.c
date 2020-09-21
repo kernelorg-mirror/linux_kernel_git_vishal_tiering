@@ -3305,7 +3305,7 @@ static int establish_migrate_target(int node, nodemask_t *used)
 		return NUMA_NO_NODE;
 
 	node_demotion[node] = migration_target;
-	node_clear_state(migration_target, N_TOPTIER);
+	mem_set_toptier_status(migration_target, false);
 
 	return migration_target;
 }

@@ -59,6 +59,7 @@
 #include <linux/tracehook.h>
 #include <linux/psi.h>
 #include <linux/seq_buf.h>
+#include <linux/stop_machine.h>
 #include "internal.h"
 #include <net/sock.h>
 #include <net/ip.h>
@@ -6974,6 +6975,81 @@ void mem_cgroup_uncharge_list(struct list_head *page_list)
 
 	if (!list_empty(page_list))
 		uncharge_list(page_list);
+}
+
+struct mem_node_tier_update_work {
+	int nid;
+	bool to_toptier;
+};
+
+/*
+ * mem_update_toptier - Change memory node toptier status
+ *
+ * Called with stop machine to avoid races.
+ * Charge/uncharge the toptier pages in a node used by
+ * mem cgroups when a node's toptier status changes.
+ *
+ */
+static int mem_update_toptier(void *data)
+{
+	struct mem_node_tier_update_work *work;
+	struct mem_cgroup *memcg;
+	struct mem_cgroup_per_node *pn;
+	int nid, zid, lru;
+	bool to_toptier;
+	long count;
+
+	work = (struct mem_node_tier_update_work *) data;
+	nid = work->nid;
+	to_toptier = work->to_toptier;
+	count = 0;
+
+	if (to_toptier) {
+		if (node_state(nid, N_TOPTIER))
+			return 0;
+		node_set_state(nid, N_TOPTIER);
+	} else {
+		if (!node_state(nid, N_TOPTIER))
+			return 0;
+		node_clear_state(nid, N_TOPTIER);
+	}
+
+	if (mem_cgroup_disabled())
+		return 0;
+
+	for_each_mem_cgroup(memcg) {
+		pn = mem_cgroup_nodeinfo(memcg, nid);
+		for (zid = 0; zid < MAX_NR_ZONES; zid++) {
+			for(lru = 0; lru < NR_LRU_LISTS; lru++) {
+				count += pn->lru_zone_size[zid][lru];
+			}
+		}
+		if (to_toptier)
+			atomic_long_add(count, &memcg->toptier.usage);
+		else {
+			count = atomic_long_sub_return(count, &memcg->toptier.usage);
+			/* prevent underflow */
+			if (count < 0)
+				atomic_long_set(&memcg->toptier.usage, 0);
+		}
+	}
+	return 0;
+}
+
+void mem_set_toptier_status(int nid, bool to_toptier)
+{
+	struct mem_node_tier_update_work work;
+
+	if (to_toptier && node_state(nid, N_TOPTIER))
+		return;
+
+	if (!to_toptier && !node_state(nid, N_TOPTIER))
+		return;
+
+	work.nid = nid;
+	work.to_toptier = to_toptier;
+
+	stop_machine(mem_update_toptier, (void *) &work, NULL);
 }
 
 /**
