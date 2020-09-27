@@ -1087,6 +1087,11 @@ unsigned int sysctl_numa_balancing_force_enable;
  * workload specific too.
  */
 unsigned int sysctl_numa_balancing_write_bias = 2;
+/*
+ * Make just demoted pages work like just scanned by NUMA balancing
+ * page table scanner.
+ */
+unsigned int sysctl_numa_balancing_scan_demoted;
 
 struct numa_group {
 	refcount_t refcount;
@@ -1580,6 +1585,9 @@ bool should_numa_migrate_memory(struct task_struct *p, struct page * page,
 		if (latency > th)
 			return false;
 
+		if (flags & TNF_DEMOTED)
+			mod_node_page_state(pgdat, PGDEMOTED_HOT,
+					    thp_nr_pages(page));
 		return numa_migration_check_rate_limit(pgdat, rate_limit,
 						       thp_nr_pages(page));
 	}

@@ -245,6 +245,7 @@ void page_mlock(struct page *page);
 
 enum rmpte_flags {
 	RMPTE_LOCKED		= 0x1,
+	RMPTE_PROT_NUMA		= 0x2,
 };
 
 void remove_migration_ptes(struct page *old, struct page *new,

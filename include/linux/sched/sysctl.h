@@ -45,9 +45,11 @@ extern unsigned int sysctl_numa_balancing_hot_threshold;
 extern unsigned int sysctl_numa_balancing_rate_limit;
 extern unsigned int sysctl_numa_balancing_force_enable;
 extern unsigned int sysctl_numa_balancing_write_bias;
+extern unsigned int sysctl_numa_balancing_scan_demoted;
 #else
 #define sysctl_numa_balancing_mode	0
 #define sysctl_numa_balancing_force_enable	0
+#define sysctl_numa_balancing_scan_demoted		0
 #endif
 
 /*
