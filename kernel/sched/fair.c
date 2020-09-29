@@ -1093,6 +1093,8 @@ unsigned int sysctl_numa_balancing_write_bias = 2;
  */
 unsigned int sysctl_numa_balancing_scan_demoted;
 
+unsigned int sysctl_numa_balancing_demoted_threshold;
+
 struct numa_group {
 	refcount_t refcount;
 
@@ -1514,7 +1516,7 @@ static void numa_migration_adjust_threshold(struct pglist_data *pgdat,
 					    unsigned long ref_th)
 {
 	unsigned long now = jiffies, last_th_ts, th_period;
-	unsigned long th, oth;
+	unsigned long th, oth, nr_demoted, nr_hot_demoted;
 	unsigned long last_nr_cand, nr_cand, ref_cand, diff_cand;
 
 	th_period = msecs_to_jiffies(sysctl_numa_balancing_scan_period_max);
@@ -1534,16 +1536,31 @@ static void numa_migration_adjust_threshold(struct pglist_data *pgdat,
 		pgdat->numa_threshold_nr_candidate = nr_cand;
 		oth = pgdat->numa_threshold;
 		th = oth ? : ref_th;
-		if (diff_cand > ref_cand * 11 / 10) {
+		nr_demoted = node_page_state(pgdat, PGDEMOTE_KSWAPD) +
+			node_page_state(pgdat, PGDEMOTE_DIRECT);
+		nr_hot_demoted = node_page_state(pgdat, PGDEMOTED_HOT);
+
+		if (sysctl_numa_balancing_demoted_threshold &&
+		    ((nr_hot_demoted - pgdat->numa_threshold_hot_demoted) *
+		     sysctl_numa_balancing_demoted_threshold >
+		     nr_demoted - pgdat->numa_threshold_demoted)) {
+		}
+		if ((diff_cand > ref_cand * 11 / 10) ||
+		    (sysctl_numa_balancing_demoted_threshold *
+		     (nr_hot_demoted - pgdat->numa_threshold_hot_demoted) >
+		     nr_demoted - pgdat->numa_threshold_demoted)) {
 			th = min(th * 9 / 10, th - 1);
 			th = max(th, 1UL);
 		} else if (diff_cand < ref_cand * 9 / 10) {
 			th = max(th * 11 / 10, th + 1);
 			th = min(th, ref_th * 2);
 		}
+
 		pgdat->numa_threshold = th;
 		pgdat->numa_threshold_try =
 			node_page_state(pgdat, PGPROMOTE_TRY);
+		pgdat->numa_threshold_demoted = nr_demoted;
+		pgdat->numa_threshold_hot_demoted = nr_hot_demoted;
 		spin_unlock(&pgdat->numa_lock);
 		trace_autonuma_threshold(pgdat->node_id, diff_cand, th);
 		mod_node_page_state(pgdat, PROMOTE_THRESHOLD, th - oth);
@@ -1574,8 +1591,7 @@ bool should_numa_migrate_memory(struct task_struct *p, struct page * page,
 		}
 
 		def_th = sysctl_numa_balancing_hot_threshold;
-		rate_limit =
-			sysctl_numa_balancing_rate_limit << (20 - PAGE_SHIFT);
+		rate_limit = sysctl_numa_balancing_rate_limit << (20 - PAGE_SHIFT);
 		numa_migration_adjust_threshold(pgdat, rate_limit, def_th);
 
 		th = pgdat->numa_threshold ? : def_th;
