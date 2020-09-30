@@ -228,6 +228,7 @@ enum node_stat_item {
 	PGPROMOTE_TRY,		/* pages to try to migrate via NUMA balancing */
 	PGPROMOTE_DEMOTED,
 	PROMOTE_THRESHOLD,
+	PROMOTE_RATELIMIT,
 #endif
 	NR_VM_NODE_STAT_ITEMS
 };
