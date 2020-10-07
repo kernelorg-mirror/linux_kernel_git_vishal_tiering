@@ -1069,8 +1069,7 @@ bool migrate_demote_page_ok(struct page *page, struct scan_control *sc)
 	if (PageTransHuge(page) && !thp_migration_supported())
 		return false;
 
-	// FIXME: actually enable this later in the series
-	return false;
+	return true;
 }
 
 
