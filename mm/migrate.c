@@ -1210,7 +1210,8 @@ bool promote_file_page(struct page *page, int flags)
 	if (flags & PFP_LOCKED)
 		unlock_page(page);
 
-	migrate_misplaced_page(page, NULL, nid);
+	if (migrate_misplaced_page(page, NULL, nid))
+		mod_node_page_state(NODE_DATA(nid), PGPROMOTE_FILE, 1);
 
 	return true;
 }
