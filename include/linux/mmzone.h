@@ -210,6 +210,7 @@ enum node_stat_item {
 #ifdef CONFIG_NUMA_BALANCING
 	PGPROMOTE_CANDIDATE,	/* candidate pages to promote */
 	PGPROMOTE_SUCCESS,	/* promote successfully */
+	PGPROMOTE_FILE,
 #endif
 	NR_VM_NODE_STAT_ITEMS
 };
