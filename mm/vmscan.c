@@ -1141,7 +1141,8 @@ static struct page *alloc_demote_page(struct page *page, unsigned long node)
  */
 static unsigned int demote_page_list(struct list_head *demote_pages,
 				     struct pglist_data *pgdat,
-				     struct scan_control *sc)
+				     struct scan_control *sc,
+				     struct reclaim_stat *stat)
 {
 	int target_nid = next_demotion_node(pgdat->node_id);
 	unsigned int nr_succeeded = 0;
@@ -1157,10 +1158,7 @@ static unsigned int demote_page_list(struct list_head *demote_pages,
 			    target_nid, MIGRATE_ASYNC, MR_DEMOTION,
 			    &nr_succeeded);
 
-	if (current_is_kswapd())
-		__mod_node_page_state(pgdat, PGDEMOTE_KSWAPD, nr_succeeded);
-	else
-		__mod_node_page_state(pgdat, PGDEMOTE_DIRECT, nr_succeeded);
+	stat->nr_demoted += nr_succeeded;
 	if (file_lru)
 		__mod_node_page_state(pgdat, PGDEMOTE_FILE, nr_succeeded);
 
@@ -1598,7 +1596,7 @@ keep:
 	/* 'page_list' is always empty here */
 
 	/* Migrate pages selected for demotion */
-	nr_reclaimed += demote_page_list(&demote_pages, pgdat, sc);
+	nr_reclaimed += demote_page_list(&demote_pages, pgdat, sc, stat);
 	/* Pages that could not be demoted are still in @demote_pages */
 	if (!list_empty(&demote_pages)) {
 		/* Pages which failed to demoted go back on @page_list for retry: */
@@ -2093,6 +2091,12 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		__mod_node_page_state(pgdat, item, nr_reclaimed);
 	__mod_memcg_state(lruvec_memcg(lruvec), item, nr_reclaimed);
 	__count_vm_events(PGSTEAL_ANON + file, nr_reclaimed);
+
+	if (stat.nr_demoted) {
+		item = current_is_kswapd() ? PGDEMOTE_KSWAPD : PGDEMOTE_DIRECT;
+		__mod_node_page_state(pgdat, item, stat.nr_demoted);
+		__mod_memcg_state(lruvec_memcg(lruvec), item, stat.nr_demoted);
+	}
 	spin_unlock_irq(&lruvec->lru_lock);
 
 	lru_note_cost(lruvec, file, stat.nr_pageout);
