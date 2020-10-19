@@ -2299,9 +2299,15 @@ int migrate_misplaced_page(struct page *page, struct vm_area_struct *vma,
 	}
 	if (nr_succeeded) {
 		count_vm_numa_events(NUMA_PAGE_MIGRATE, nr_succeeded);
-		if (!node_is_toptier(page_to_nid(page)) && node_is_toptier(node))
+		if (!node_is_toptier(page_to_nid(page)) && node_is_toptier(node)) {
+			struct mem_cgroup *memcg;
+
 			mod_node_page_state(NODE_DATA(node), PGPROMOTE_SUCCESS,
 					    nr_succeeded);
+			memcg = get_mem_cgroup_from_mm(current->mm);
+			mod_memcg_state(memcg, PGPROMOTE_SUCCESS, nr_succeeded);
+			mem_cgroup_put(memcg);
+		}
 	}
 	BUG_ON(!list_empty(&migratepages));
 	return isolated;
