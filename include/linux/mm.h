@@ -1538,6 +1538,14 @@ static inline void set_page_links(struct page *page, enum zone_type zone,
 #endif
 }
 
+#ifdef CONFIG_MEMCG
+extern void check_toptier_balanced(void);
+#else
+static inline void check_toptier_balanced(void)
+{
+}
+#endif
+
 /*
  * Some inline functions in vmstat.h depend on page_zone()
  */

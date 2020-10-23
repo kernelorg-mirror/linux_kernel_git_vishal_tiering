@@ -730,6 +730,26 @@ static unsigned long soft_limit_excess(struct mem_cgroup *memcg, enum node_state
 	return excess;
 }
 
+void check_toptier_balanced(void)
+{
+	int nid;
+	int bal;
+
+	for_each_node_state(nid, N_MEMORY) {
+		pg_data_t *pgdat = NODE_DATA(nid);
+
+		if (!node_state(nid, N_TOPTIER))
+			continue;
+
+		bal = pgdat_toptier_balanced(pgdat, 0, ZONE_MOVABLE);
+		if (!bal) {
+			pgdat->kswapd_order = 0;
+			pgdat->kswapd_highest_zoneidx = ZONE_NORMAL;
+			wakeup_kswapd(pgdat->node_zones + ZONE_NORMAL, 0, 1, ZONE_NORMAL);
+		}
+	}
+}
+
 static void mem_cgroup_update_tree(struct mem_cgroup *bottom_memcg, struct page *page)
 {
 	unsigned long excess;
