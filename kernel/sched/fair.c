@@ -22,6 +22,9 @@
  */
 #include "sched.h"
 
+#include <trace/events/sched.h>
+#include <linux/mm.h>
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *
@@ -10917,6 +10920,7 @@ void trigger_load_balance(struct rq *rq)
 		raise_softirq(SCHED_SOFTIRQ);
 
 	nohz_balancer_kick(rq);
+	check_toptier_balanced();
 }
 
 static void rq_online_fair(struct rq *rq)
