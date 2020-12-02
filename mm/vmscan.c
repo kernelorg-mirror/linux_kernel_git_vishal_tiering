@@ -1082,10 +1082,6 @@ bool migrate_demote_page_ok(struct page *page, struct scan_control *sc)
 	if (!(node_reclaim_mode & RECLAIM_MIGRATE))
 		return false;
 
-	/* It is pointless to do demotion in memcg reclaim */
-	if (cgroup_reclaim(sc))
-		return false;
-
 	if (next_nid == NUMA_NO_NODE)
 		return false;
 	if (PageTransHuge(page) && !thp_migration_supported())
