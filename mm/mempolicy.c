@@ -102,6 +102,7 @@
 #include <linux/mmu_notifier.h>
 #include <linux/printk.h>
 #include <linux/swapops.h>
+#include <linux/sched/sysctl.h>
 
 #include <asm/tlbflush.h>
 #include <linux/uaccess.h>
@@ -296,6 +297,8 @@ static struct mempolicy *mpol_new(unsigned short mode, unsigned short flags,
 	atomic_set(&policy->refcnt, 1);
 	policy->mode = mode;
 	policy->flags = flags;
+	if (sysctl_numa_balancing_force_enable && mode == MPOL_BIND)
+		policy->flags |= (MPOL_F_MOF | MPOL_F_MORON);
 
 	return policy;
 }

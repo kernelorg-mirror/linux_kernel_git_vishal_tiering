@@ -1076,6 +1076,11 @@ unsigned int sysctl_numa_balancing_hot_threshold = 1000;
  * if no enough free space in target node
  */
 unsigned int sysctl_numa_balancing_rate_limit = 65536;
+/*
+ * Force enable NUMA balancing, even for task or memory area with explicit
+ * memory binding policy
+ */
+unsigned int sysctl_numa_balancing_force_enable;
 
 struct numa_group {
 	refcount_t refcount;
