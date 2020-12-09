@@ -1770,6 +1770,14 @@ static struct ctl_table kern_table[] = {
 		.extra1		= SYSCTL_ZERO,
 	},
 	{
+		.procname	= "numa_balancing_write_bias",
+		.data		= &sysctl_numa_balancing_write_bias,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ONE,
+	},
+	{
 		.procname	= "numa_balancing",
 		.data		= &sysctl_numa_balancing_mode,
 		.maxlen		= sizeof(int),
