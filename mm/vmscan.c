@@ -3805,7 +3805,7 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int highest_zoneidx)
 	return false;
 }
 
-static bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx)
+bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx)
 {
 	unsigned long mark;
 	struct zone *zone;

@@ -935,6 +935,8 @@ bool zone_watermark_ok(struct zone *z, unsigned int order,
 		unsigned int alloc_flags);
 bool zone_watermark_ok_safe(struct zone *z, unsigned int order,
 		unsigned long mark, int highest_zoneidx);
+bool pgdat_toptier_balanced(pg_data_t *pgdat, int order, int classzone_idx);
+
 /*
  * Memory initialization context, use to differentiate memory added by
  * the platform statically or via memory hotplug interface.
@@ -1534,5 +1536,6 @@ void sparse_init(void);
 #endif
 
 #endif /* !__GENERATING_BOUNDS.H */
+
 #endif /* !__ASSEMBLY__ */
 #endif /* _LINUX_MMZONE_H */
