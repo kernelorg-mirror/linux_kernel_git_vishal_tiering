@@ -1778,6 +1778,14 @@ static struct ctl_table kern_table[] = {
 		.extra1		= SYSCTL_ONE,
 	},
 	{
+		.procname	= "numa_balancing_force_enable",
+		.data		= &sysctl_numa_balancing_force_enable,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+	},
+	{
 		.procname	= "numa_balancing",
 		.data		= &sysctl_numa_balancing_mode,
 		.maxlen		= sizeof(int),
