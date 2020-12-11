@@ -2384,11 +2384,13 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	unsigned long ap, fp;
 	enum lru_list lru;
 
+#if 0
 	/* If we have no swap space, do not bother scanning anon pages. */
 	if (!sc->may_swap || !can_reclaim_anon_pages(memcg, pgdat->node_id, sc)) {
 		scan_balance = SCAN_FILE;
 		goto out;
 	}
+#endif
 
 	/*
 	 * Global reclaim will swap to prevent OOM even with no
