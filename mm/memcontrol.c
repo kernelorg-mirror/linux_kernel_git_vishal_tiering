@@ -766,7 +766,7 @@ void check_toptier_balanced(void)
 	}
 }
 
-static void mem_cgroup_update_tree(struct mem_cgroup *bottom_memcg, struct page *page)
+static void mem_cgroup_update_tree_node(struct mem_cgroup *bottom_memcg, int nid)
 {
 	unsigned long excess;
 	struct mem_cgroup_per_node *mz;
@@ -776,7 +776,7 @@ static void mem_cgroup_update_tree(struct mem_cgroup *bottom_memcg, struct page 
 
 repeat_toptier:
 	memcg = bottom_memcg;
-	mctz = soft_limit_tree_from_page(page, type);
+	mctz = soft_limit_tree_node(nid, type);
 
 	if (!mctz)
 		return;
@@ -787,7 +787,7 @@ repeat_toptier:
 	for (; memcg; memcg = parent_mem_cgroup(memcg)) {
 		bool on_tree;
 
-		mz = mem_cgroup_page_nodeinfo(memcg, page);
+		mz = mem_cgroup_nodeinfo(memcg, nid);
 		excess = soft_limit_excess(memcg, type);
 
 		on_tree = (type == N_MEMORY) ? mz->on_tree: mz->on_toptier_tree;
@@ -816,6 +816,11 @@ repeat_toptier:
 		type = N_TOPTIER;
 		goto repeat_toptier;
 	}
+}
+
+static void mem_cgroup_update_tree(struct mem_cgroup *bottom_memcg, struct page *page)
+{
+	mem_cgroup_update_tree_node(bottom_memcg, page_to_nid(page));
 }
 
 static void mem_cgroup_remove_from_trees(struct mem_cgroup *memcg)
@@ -3458,6 +3463,24 @@ static int mem_cgroup_resize_max(struct mem_cgroup *memcg,
 	return ret;
 }
 
+static void refresh_toptier_tree(struct mem_cgroup_tree_per_node *mctz, int nid)
+{
+	struct mem_cgroup *memcg;
+
+	for_each_mem_cgroup(memcg) {
+		struct lruvec *lruvec = mem_cgroup_lruvec(memcg, NODE_DATA(nid));
+
+		if (memcg == NULL || memcg->toptier_soft_limit == PAGE_COUNTER_MAX)
+			continue;
+
+		if (!lruvec_page_state(lruvec, NR_INACTIVE_ANON) &&
+		   !lruvec_page_state(lruvec, LRU_ACTIVE_ANON))
+			continue;
+
+		mem_cgroup_update_tree_node(memcg, nid);
+	}
+}
+
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 					    gfp_t gfp_mask,
 					    unsigned long *total_scanned,
@@ -3520,6 +3543,11 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 	 * keep exceeding their soft limit and putting the system under
 	 * pressure
 	 */
+
+	if (type == N_TOPTIER) {
+		refresh_toptier_tree(mctz, pgdat->node_id);
+	}
+
 	do {
 		if (next_mz)
 			mz = next_mz;
