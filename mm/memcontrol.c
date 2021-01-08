@@ -3175,6 +3175,7 @@ int __memcg_kmem_charge_page(struct page *page, gfp_t gfp, int order)
 		if (!ret) {
 			page->mem_cgroup = memcg;
 			mem_cgroup_charge_toptier(memcg, page, 1 << order);
+			memcg_check_events(memcg, page);
 			__SetPageKmemcg(page);
 			return 0;
 		}
@@ -3199,6 +3200,7 @@ void __memcg_kmem_uncharge_page(struct page *page, int order)
 	VM_BUG_ON_PAGE(mem_cgroup_is_root(memcg), page);
 	__memcg_kmem_uncharge(memcg, nr_pages);
 	mem_cgroup_charge_toptier(memcg, page, -nr_pages);
+	memcg_check_events(memcg, page);
 	page->mem_cgroup = NULL;
 	css_put(&memcg->css);
 
