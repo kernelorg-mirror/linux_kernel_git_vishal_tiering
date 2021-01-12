@@ -6972,6 +6972,7 @@ struct uncharge_gather {
 	unsigned long nr_kmem;
 	unsigned long nr_toptier;
 	struct page *dummy_page;
+	int nid;
 };
 
 static inline void uncharge_gather_clear(struct uncharge_gather *ug)
@@ -7018,7 +7019,9 @@ static void uncharge_page(struct page *page, struct uncharge_gather *ug)
 	 * exclusive access to the page.
 	 */
 
-	if (ug->memcg != page->mem_cgroup) {
+	if (ug->memcg != page->mem_cgroup ||
+	    /* uncharge batch update soft limit tree on a node basis */
+	    (ug->dummy_page && ug->nid != page_to_nid(page))) {
 		if (ug->memcg) {
 			uncharge_batch(ug);
 			uncharge_gather_clear(ug);
@@ -7042,6 +7045,7 @@ static void uncharge_page(struct page *page, struct uncharge_gather *ug)
 	}
 
 	ug->dummy_page = page;
+	ug->nid = page_to_nid(page);
 	page->mem_cgroup = NULL;
 	css_put(&ug->memcg->css);
 }
