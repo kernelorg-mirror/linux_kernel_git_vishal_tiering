@@ -3579,8 +3579,14 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 		 */
 		if (!nr_reclaimed &&
 			(next_mz == NULL ||
-			loop > MEM_CGROUP_MAX_SOFT_LIMIT_RECLAIM_LOOPS))
+			loop > MEM_CGROUP_MAX_SOFT_LIMIT_RECLAIM_LOOPS)) {
+			if (next_mz) {
+				spin_lock_irq(&mctz->lock);
+				__mem_cgroup_insert_exceeded(next_mz, mctz, excess, type);
+				spin_unlock_irq(&mctz->lock);
+			}
 			break;
+		}
 	} while (!nr_reclaimed);
 	if (next_mz)
 		css_put(&next_mz->memcg->css);
