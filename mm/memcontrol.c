@@ -1105,17 +1105,26 @@ static bool mem_cgroup_event_ratelimit(struct mem_cgroup *memcg,
  * Check events in order.
  *
  */
-static void memcg_check_events(struct mem_cgroup *memcg, struct page *page)
+static void memcg_check_events(struct mem_cgroup *memcg, struct page *page, int nr_pages)
 {
+	struct mem_cgroup_per_node *mz;
+	bool force_update = false;
+
+	if (nr_pages > 0) {
+		mz = mem_cgroup_nodeinfo(memcg, page_to_nid(page));
+		if (mz && !mz->on_toptier_tree && soft_limit_excess(mz->memcg, N_TOPTIER) > 0)
+			force_update = true;
+	}
+
 	/* threshold event is triggered in finer grain than soft limit */
-	if (unlikely(mem_cgroup_event_ratelimit(memcg,
+	if (unlikely(force_update) || unlikely(mem_cgroup_event_ratelimit(memcg,
 						MEM_CGROUP_TARGET_THRESH))) {
 		bool do_softlimit;
 
 		do_softlimit = mem_cgroup_event_ratelimit(memcg,
 						MEM_CGROUP_TARGET_SOFTLIMIT);
 		mem_cgroup_threshold(memcg);
-		if (unlikely(do_softlimit))
+		if (unlikely(force_update) || unlikely(do_softlimit))
 			mem_cgroup_update_tree(memcg, page);
 	}
 }
@@ -3266,6 +3275,7 @@ int __memcg_kmem_charge_page(struct page *page, gfp_t gfp, int order)
 			page->memcg_data = (unsigned long)memcg |
 				MEMCG_DATA_KMEM;
 			mem_cgroup_charge_toptier(memcg, page, 1 << order);
+			memcg_check_events(memcg, page, 1 << order);
 			return 0;
 		}
 		css_put(&memcg->css);
@@ -3290,6 +3300,7 @@ void __memcg_kmem_uncharge_page(struct page *page, int order)
 	__memcg_kmem_uncharge(memcg, nr_pages);
 	page->memcg_data = 0;
 	mem_cgroup_charge_toptier(memcg, page, -nr_pages);
+	memcg_check_events(memcg, page, -nr_pages);
 	css_put(&memcg->css);
 }
 
@@ -5922,9 +5933,9 @@ static int mem_cgroup_move_account(struct page *page,
 
 	local_irq_disable();
 	mem_cgroup_charge_statistics(to, page, nr_pages);
-	memcg_check_events(to, page);
+	memcg_check_events(to, page, nr_pages);
 	mem_cgroup_charge_statistics(from, page, -nr_pages);
-	memcg_check_events(from, page);
+	memcg_check_events(from, page, -nr_pages);
 	local_irq_enable();
 out_unlock:
 	unlock_page(page);
@@ -6978,7 +6989,7 @@ int mem_cgroup_charge(struct page *page, struct mm_struct *mm, gfp_t gfp_mask)
 
 	local_irq_disable();
 	mem_cgroup_charge_statistics(memcg, page, nr_pages);
-	memcg_check_events(memcg, page);
+	memcg_check_events(memcg, page, nr_pages);
 	local_irq_enable();
 
 	if (PageSwapCache(page)) {
@@ -7028,7 +7039,7 @@ static void uncharge_batch(const struct uncharge_gather *ug)
 	local_irq_save(flags);
 	__count_memcg_events(ug->memcg, PGPGOUT, ug->pgpgout);
 	__this_cpu_add(ug->memcg->vmstats_percpu->nr_page_events, ug->nr_pages);
-	memcg_check_events(ug->memcg, ug->dummy_page);
+	memcg_check_events(ug->memcg, ug->dummy_page, -ug->nr_pages);
 	local_irq_restore(flags);
 
 	/* drop reference from uncharge_page */
@@ -7185,7 +7196,7 @@ void mem_cgroup_migrate(struct page *oldpage, struct page *newpage)
 
 	local_irq_save(flags);
 	mem_cgroup_charge_statistics(memcg, newpage, nr_pages);
-	memcg_check_events(memcg, newpage);
+	memcg_check_events(memcg, newpage, nr_pages);
 	local_irq_restore(flags);
 }
 
@@ -7422,7 +7433,7 @@ void mem_cgroup_swapout(struct page *page, swp_entry_t entry)
 	 */
 	VM_BUG_ON(!irqs_disabled());
 	mem_cgroup_charge_statistics(memcg, page, -nr_entries);
-	memcg_check_events(memcg, page);
+	memcg_check_events(memcg, page, -nr_entries);
 
 	css_put(&memcg->css);
 }
