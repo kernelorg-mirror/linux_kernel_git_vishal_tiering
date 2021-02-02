@@ -3487,8 +3487,18 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 			loop > MEM_CGROUP_MAX_SOFT_LIMIT_RECLAIM_LOOPS))
 			break;
 	} while (!nr_reclaimed);
-	if (next_mz)
+	if (next_mz) {
+		/*
+		 * next_mz was removed in __mem_cgroup_largest_soft_limit_node.
+		 * Put it back in tree with latest excess value.
+		 */
+		spin_lock_irq(&mctz->lock);
+		__mem_cgroup_remove_exceeded(next_mz, mctz, type);
+		excess = soft_limit_excess(next_mz->memcg, type);
+		__mem_cgroup_insert_exceeded(next_mz, mctz, excess, type);
+		spin_unlock_irq(&mctz->lock);
 		css_put(&next_mz->memcg->css);
+	}
 	return nr_reclaimed;
 }
 
