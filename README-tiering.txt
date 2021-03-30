@@ -62,61 +62,29 @@ d. Ensure the newly created NUMA nodes for the hotplugged memory are in
 3. Post boot setup
 ==================
 
-a. Setup migration targets
-    # echo 2 > /sys/devices/system/node/node0/migration_path
-    # echo 3 > /sys/devices/system/node/node1/migration_path
-   etc.
-   The number of nodes this will need to be performed for depends
-   on CPU nodes in the system, and CPU-less nodes added in the previous step.
-   In this example, The hotplugged pmem physically attached to node0 is node2,
-   so the demotion path is node0 -> node2
+a. Enable node-reclaim for cold page demotion
+   After the device-dax instances are onlined node-reclaim needs to be
+   enabled to start migrating “cold” pages from DRAM to PMEM.
+    # echo 15 > /proc/sys/vm/zone_reclaim_mode
 
-b. Enable 'autonuma'
+b. Enable 'NUMA balancing' for promotion
     # echo 2 > /proc/sys/kernel/numa_balancing
     # echo 30 > /proc/sys/kernel/numa_balancing_rate_limit_mbps
 
-c. Enable swapcache promotion
-   This is only valid when swap is turned on. When the option is enabled, it
-   will migrate the hot swapcache page to fast DRAM node when possible.
-    # sysctl -w vm.enable_swapcache_promotion=1
-
-   The promoted page number could be checked in /proc/vmstat:
-      hmem_swapcache_promote_src
-      hmem_swapcache_promote_dst
-
-d. Enable page cache promotion
-   Support cache page promotion in shmem/generic file reads and writes. The
-   demotion is on the page reclaim path. Provide user interfaces to
-   control the rate limits of promotion and demotion. By default, promotion
-   is disabled and demotion is enabled.
-
-   For performance experiments, the recommended settings are:
-   To enable promotion, set a non-zero ratelimit. Using '-1' disables any
-   ratelimiting, and also enables promotion.
-    # echo -1 > /proc/sys/vm/promotion_ratelimit_mbytes_per_sec
-    # echo -1 > /proc/sys/vm/demotion_ratelimit_mbytes_per_sec
-
-   Enable node-reclaim for HMEM cold page demotion (new in tiering-0.5)
-   After the device-dax instances are onlined node-reclaim needs to be
-   enabled to start migrating “cold” pages from DRAM to pmem
-    # echo 15 > /proc/sys/vm/zone_reclaim_mode
+4. Promotion/demotion statistics
+==================
 
    The number of promoted pages can be checked by the following counters in
    /proc/vmstat or /sys/devices/system/node/node[n]/vmstat:
-      hmem_reclaim_promote_src
-      hmem_reclaim_promote_dst
-      nr_promoted
+      pgpromote_success
 
    The number of pages demoted can be checked by the following counters:
-      hmem_reclaim_demote_src
-      hmem_reclaim_demote_dst
+      pgdemote_kswapd
+      pgdemote_direct
 
    The page number of failure in promotion could be checked by the
    following counters:
-      nr_promote_fail
-      nr_promote_isolate_fail
-
-   The number of pages that have been limited by the ratelimit can be checked
-   by the following counter:
-      nr_promote_ratelimit
-
+      pgmigrate_fail_dst_node_fail
+      pgmigrate_fail_numa_isolate_fail
+      pgmigrate_fail_nomem_fail
+      pgmigrate_fail_refcount_fail
