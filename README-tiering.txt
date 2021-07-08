@@ -1,3 +1,19 @@
+Release Notes
+=============
+
+Updates in tiering-0.72:
+- Rebased on v5.13
+- Change the ABI to enabling page demotion per request of the community.
+- Add a way to enable NUMA balancing for memory area with
+  MPOL_PREFERRED_MANY mode when bound via mbind().
+- Introduce a new policy MPOL_PREFERRED_MANY, which will firstly
+    try to allocate memory from a few preferred nodes, and fallback
+    to all nodes in system if the try fails. The policy could be
+    set with 'mbind' or 'set_mempolicy' syscalls 
+- Code cleanup and bug fixing.
+- Add a README section (5) for Cgroup toptier memory control
+
+
 0. Introduction
 ===============
 
@@ -62,17 +78,16 @@ d. Ensure the newly created NUMA nodes for the hotplugged memory are in
 3. Post boot setup
 ==================
 
-a. Enable node-reclaim for cold page demotion
-   After the device-dax instances are onlined node-reclaim needs to be
-   enabled to start migrating “cold” pages from DRAM to PMEM.
-    # echo 15 > /proc/sys/vm/zone_reclaim_mode
+a. Enable cold page demotion after the device-dax instances are
+   onlined to start migrating “cold” pages from DRAM to PMEM.
+    # echo 1 > /sys/kernel/mm/numa/demotion_enabled
 
 b. Enable 'NUMA balancing' for promotion
     # echo 2 > /proc/sys/kernel/numa_balancing
     # echo 30 > /proc/sys/kernel/numa_balancing_rate_limit_mbps
 
 4. Promotion/demotion statistics
-==================
+================================
 
    The number of promoted pages can be checked by the following counters in
    /proc/vmstat or /sys/devices/system/node/node[n]/vmstat:
@@ -88,3 +103,31 @@ b. Enable 'NUMA balancing' for promotion
       pgmigrate_fail_numa_isolate_fail
       pgmigrate_fail_nomem_fail
       pgmigrate_fail_refcount_fail
+
+5. Cgroup toptier memory control
+================================
+
+    The toptier memory usage can be viewed by looking at the
+    memory.toptier_usage_in_bytes field of the cgroup v1 memory controller.
+    For example, to look at cgroup grp0's usage of the toptier memory,
+    you look at
+        /sys/fs/cgroup/memory/grp0/memory.toptier_usage_in_bytes
+
+    To limit the usage of toptier memory of the cgroup, you can put a byte
+    limit by writing to memory.toptier_soft_limit_in_bytes. For example,
+    to put a 1GB limit on cgroup grp0,
+        echo 1073741824 > /sys/fs/cgroup/memory/grp0/memory.toptier_soft_limit_in_bytes
+
+    The limit is a soft limit so it can be exceeded if there are no other
+    cgroups around needing the memory.  Otherwise, on each toptier  memory
+    node, there is a kswapd daemon that is woken up to demote memory for
+    those cgroup that has exceeded their soft limit when free memory on
+    the node falls below the following fraction
+        toptier_scale_factor/10000 
+
+    The default value of toptier_scale_factor is 2000 , (i.e. 20%) so
+    kswapd will be woken up when available free memory on a node falls
+    below 20%. The top_tier_scale_factor can be adjusted higher if we
+    need kswapd to keep more free memory around by updating the sysctl
+    variable 
+        /proc/sys/vm/toptier_scale_factor  
