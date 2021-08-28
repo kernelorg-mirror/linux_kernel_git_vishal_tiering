@@ -1097,6 +1097,8 @@ unsigned int sysctl_numa_balancing_demoted_threshold;
 
 unsigned int sysctl_numa_balancing_promote_watermark_mb = 10;
 
+unsigned int sysctl_numa_balancing_ps_rate_limit = 1;
+
 /* Scan asynchronously via work queue */
 unsigned int sysctl_numa_balancing_scan_async;
 
@@ -1495,11 +1497,13 @@ static bool numa_migration_check_rate_limit(struct pglist_data *pgdat,
 	if (now > last_ts + HZ &&
 	    cmpxchg(&pgdat->numa_ts, last_ts, now) == last_ts)
 		pgdat->numa_nr_candidate = nr_candidate;
-	if (nr_candidate - pgdat->numa_nr_candidate > 5 * rate_limit)
+	if (sysctl_numa_balancing_ps_rate_limit &&
+	    nr_candidate - pgdat->numa_nr_candidate > 5 * rate_limit)
 		return false;
 	try = node_page_state(pgdat, PGPROMOTE_TRY);
 	dms = jiffies_to_msecs(now - pgdat->numa_threshold_ts);
-	if (try - pgdat->numa_threshold_try > rate_limit * dms / 1000)
+	if (sysctl_numa_balancing_ps_rate_limit &&
+	    try - pgdat->numa_threshold_try > rate_limit * dms / 1000)
 		return false;
 	mod_node_page_state(pgdat, PGPROMOTE_TRY, nr);
 	return true;

@@ -51,6 +51,7 @@ extern unsigned int sysctl_numa_balancing_scan_async;
 extern unsigned int sysctl_numa_balancing_async_promote;
 extern unsigned int sysctl_numa_balancing_promote_watermark_mb;
 extern unsigned int sysctl_numa_balancing_wake_up_kswapd_early;
+extern unsigned int sysctl_numa_balancing_ps_rate_limit;
 #else
 #define sysctl_numa_balancing_mode	0
 #define sysctl_numa_balancing_force_enable	0
