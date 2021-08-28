@@ -3805,8 +3805,8 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int highest_zoneidx)
 		    next_demotion_node(pgdat->node_id) != NUMA_NO_NODE) {
 			unsigned long promote_mark;
 
-			promote_mark = min(NUMA_BALANCING_PROMOTE_WATERMARK,
-					   pgdat->node_present_pages >> 6);
+			promote_mark = min((sysctl_numa_balancing_promote_watermark_mb * 1024UL * 1024 >> PAGE_SHIFT),
+					 pgdat->node_present_pages >> 6);
 			mark += promote_mark;
 		}
 		if (zone_watermark_ok_safe(zone, order, mark, highest_zoneidx))

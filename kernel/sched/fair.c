@@ -1095,6 +1095,8 @@ unsigned int sysctl_numa_balancing_scan_demoted;
 
 unsigned int sysctl_numa_balancing_demoted_threshold;
 
+unsigned int sysctl_numa_balancing_promote_watermark_mb = 10;
+
 /* Scan asynchronously via work queue */
 unsigned int sysctl_numa_balancing_scan_async;
 
