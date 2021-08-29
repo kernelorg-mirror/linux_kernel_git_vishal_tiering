@@ -2141,10 +2141,14 @@ SYSCALL_DEFINE6(move_pages, pid_t, pid, unsigned long, nr_pages,
  * Returns true if this is a safe migration target node for misplaced NUMA
  * pages. Currently it only checks the watermarks which crude
  */
-static bool migrate_balanced_pgdat(struct pglist_data *pgdat, int order)
+static bool migrate_balanced_pgdat(struct pglist_data *pgdat, int order,
+				   bool *low_watermark)
 {
 	int z;
+	unsigned int promote_mark;
 
+	promote_mark = sysctl_numa_balancing_promote_watermark_mb * 1024UL * 1024 >> PAGE_SHIFT;
+	*low_watermark = false;
 	for (z = pgdat->nr_zones - 1; z >= 0; z--) {
 		struct zone *zone = pgdat->node_zones + z;
 
@@ -2155,6 +2159,11 @@ static bool migrate_balanced_pgdat(struct pglist_data *pgdat, int order)
 		if (!zone_watermark_ok(zone, order, high_wmark_pages(zone),
 				       ZONE_MOVABLE, 0))
 			continue;
+		if (sysctl_numa_balancing_wake_up_kswapd_early &&
+		    !zone_watermark_ok(zone, order,
+				       high_wmark_pages(zone) + promote_mark / 2,
+				       ZONE_MOVABLE, 0))
+			*low_watermark = true;
 		return true;
 	}
 	return false;
@@ -2197,6 +2206,8 @@ static int numamigrate_isolate_page(pg_data_t *pgdat, struct page *page)
 	int page_lru;
 	int nr_pages = thp_nr_pages(page);
 	int order = compound_order(page);
+	bool balanced;
+	bool low_watermark = false;
 
 	VM_BUG_ON_PAGE(order && !PageTransHuge(page), page);
 
@@ -2205,11 +2216,13 @@ static int numamigrate_isolate_page(pg_data_t *pgdat, struct page *page)
 		return 0;
 
 	/* Avoid migrating to a node that is nearly full */
-	if (!migrate_balanced_pgdat(pgdat, order)) {
+	balanced = migrate_balanced_pgdat(pgdat, order, &low_watermark);
+	if (!balanced || low_watermark) {
 		int z;
 
-		count_vm_events(PGMIGRATE_DST_NODE_FULL_FAIL,
-				thp_nr_pages(page));
+		if (!balanced)
+			count_vm_events(PGMIGRATE_DST_NODE_FULL_FAIL,
+					thp_nr_pages(page));
 
 		if (!(sysctl_numa_balancing_mode & NUMA_BALANCING_MEMORY_TIERING) ||
 		    !numa_demotion_enabled)
@@ -2221,7 +2234,8 @@ static int numamigrate_isolate_page(pg_data_t *pgdat, struct page *page)
 				break;
 		}
 		wakeup_kswapd(pgdat->node_zones + z, 0, order, ZONE_MOVABLE);
-		return 0;
+		if (!balanced)
+			return 0;
 	}
 
 	if (isolate_lru_page(page))

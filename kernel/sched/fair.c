@@ -1102,6 +1102,8 @@ unsigned int sysctl_numa_balancing_scan_async;
 
 unsigned int sysctl_numa_balancing_async_promote;
 
+unsigned int sysctl_numa_balancing_wake_up_kswapd_early;
+
 static struct workqueue_struct *numa_balancing_scan_wq;
 
 struct workqueue_struct *numa_balancing_promote_wq;
