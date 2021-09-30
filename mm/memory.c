@@ -4336,6 +4336,103 @@ int numa_migrate_prep(struct page *page, struct vm_area_struct *vma,
 	return mpol_misplaced(page, vma, addr, *flags);
 }
 
+#ifdef CONFIG_NUMA_BALANCING
+static bool numa_balancing_promote_pages_add(struct pglist_data *pgdat,
+					     struct page *page)
+{
+	bool ret = true;
+
+	spin_lock(&pgdat->promote_pages_lock);
+	if ((int)(pgdat->promote_pages_head - pgdat->promote_pages_tail) <
+	    NUMA_BALANCING_PROMOTE_PAGES_MAX) {
+		unsigned int idx;
+
+		idx = pgdat->promote_pages_head++ & NUMA_BALANCING_PROMOTE_PAGES_MASK;
+		pgdat->promote_pages[idx] = page;
+	} else {
+		put_page(page);
+		ret = false;
+	}
+	spin_unlock(&pgdat->promote_pages_lock);
+
+	return ret;
+}
+
+static struct page *numa_balancing_promote_pages_del(struct pglist_data *pgdat)
+{
+	struct page *page = NULL;
+
+	spin_lock(&pgdat->promote_pages_lock);
+	if ((int)(pgdat->promote_pages_head != pgdat->promote_pages_tail)) {
+		unsigned int idx;
+
+		idx = pgdat->promote_pages_tail++ & NUMA_BALANCING_PROMOTE_PAGES_MASK;
+		page = pgdat->promote_pages[idx];
+	}
+	spin_unlock(&pgdat->promote_pages_lock);
+
+	return page;
+}
+
+static void numa_balancing_promote_pages(struct work_struct *work)
+{
+	int nid = numa_node_id();
+	struct pglist_data *pgdat = NODE_DATA(nid);
+	struct page *page = NULL;
+
+	for (;;) {
+		page = numa_balancing_promote_pages_del(pgdat);
+		if (!page)
+			return;
+		migrate_misplaced_page(page, NULL, nid);
+	}
+}
+
+static bool numa_balancing_promote_pages_init(struct pglist_data *pgdat)
+{
+	struct work_struct *work;
+
+	if (!numa_balancing_promote_wq)
+		return false;
+
+	if (pgdat->promote_pages_work)
+		return true;
+
+	work = kzalloc(sizeof(*pgdat->promote_pages_work), GFP_KERNEL);
+	if (!work)
+		return false;
+	INIT_WORK(work, numa_balancing_promote_pages);
+	spin_lock(&pgdat->promote_pages_lock);
+	if (!pgdat->promote_pages_work) {
+		pgdat->promote_pages_work = work;
+		work = NULL;
+	}
+	spin_unlock(&pgdat->promote_pages_lock);
+	if (work)
+		kfree(work);
+
+	return true;
+}
+
+
+static void numa_balancing_promote_pages_queue(struct pglist_data *pgdat,
+					       struct page *page)
+{
+	if (!numa_balancing_promote_pages_init(pgdat))
+		return;
+	if (!numa_balancing_promote_pages_add(pgdat, page))
+		return;
+
+	queue_work_node(numa_node_id(), numa_balancing_promote_wq,
+			pgdat->promote_pages_work);
+}
+#else
+static inline void numa_balancing_promote_pages_queue(struct pglist_data *pgdat,
+						      struct page *page)
+{
+}
+#endif
+
 static noinline vm_fault_t do_numa_page(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
@@ -4410,12 +4507,22 @@ static noinline vm_fault_t do_numa_page(struct vm_fault *vmf)
 	}
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
 
+	if (sysctl_numa_balancing_async_promote) {
+		struct pglist_data *pgdat = NODE_DATA(target_nid);
+
+		numa_balancing_promote_pages_queue(pgdat, page);
+		page_nid = target_nid;
+		flags |= TNF_MIGRATED;
+		goto lock_out_map;
+	}
+
 	/* Migrate to the requested node */
 	if (migrate_misplaced_page(page, vma, target_nid)) {
 		page_nid = target_nid;
 		flags |= TNF_MIGRATED;
 	} else {
 		flags |= TNF_MIGRATE_FAIL;
+lock_out_map:
 		vmf->pte = pte_offset_map(vmf->pmd, vmf->address);
 		spin_lock(vmf->ptl);
 		if (unlikely(!pte_same(*vmf->pte, vmf->orig_pte))) {

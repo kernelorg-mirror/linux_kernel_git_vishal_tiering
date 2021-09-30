@@ -74,6 +74,8 @@ static inline bool test_and_clear_page_demoted(struct page *page)
 }
 #endif /* !CONFIG_64BIT */
 
+extern struct workqueue_struct *numa_balancing_promote_wq;
+
 #else
 static inline void task_numa_fault(int last_node, int node, int pages,
 				   int flags)

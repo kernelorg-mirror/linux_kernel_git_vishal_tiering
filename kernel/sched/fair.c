@@ -1098,7 +1098,11 @@ unsigned int sysctl_numa_balancing_demoted_threshold;
 /* Scan asynchronously via work queue */
 unsigned int sysctl_numa_balancing_scan_async;
 
+unsigned int sysctl_numa_balancing_async_promote;
+
 static struct workqueue_struct *numa_balancing_scan_wq;
+
+struct workqueue_struct *numa_balancing_promote_wq;
 
 struct numa_group {
 	refcount_t refcount;
@@ -3059,6 +3063,11 @@ static int numa_balancing_init(void)
 	numa_balancing_scan_wq = alloc_workqueue("numa_balancing_scan",
 		WQ_UNBOUND | WQ_FREEZABLE | WQ_SYSFS, 0);
 	if (!numa_balancing_scan_wq)
+		return -ENOMEM;
+
+	numa_balancing_promote_wq = alloc_workqueue("numa_balancing_promote",
+		WQ_UNBOUND | WQ_FREEZABLE | WQ_SYSFS, 0);
+	if (!numa_balancing_promote_wq)
 		return -ENOMEM;
 
 	return 0;

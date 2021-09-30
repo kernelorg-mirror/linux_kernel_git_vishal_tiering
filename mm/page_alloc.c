@@ -7408,6 +7408,7 @@ static void __meminit pgdat_init_internals(struct pglist_data *pgdat)
 
 #ifdef CONFIG_NUMA_BALANCING
 	spin_lock_init(&pgdat->numa_lock);
+	spin_lock_init(&pgdat->promote_pages_lock);
 #endif
 }
 

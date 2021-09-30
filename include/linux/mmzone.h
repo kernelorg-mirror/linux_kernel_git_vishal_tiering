@@ -811,6 +811,10 @@ struct deferred_split {
 };
 #endif
 
+#define NUMA_BALANCING_PROMOTE_PAGES_MAX	(1<<8)
+#define NUMA_BALANCING_PROMOTE_PAGES_MASK	(NUMA_BALANCING_PROMOTE_PAGES_MAX-1)
+struct work_struct;
+
 /*
  * On NUMA machines, each NUMA node would have a pg_data_t to describe
  * it's memory layout. On UMA machines there is a single pglist_data which
@@ -916,6 +920,13 @@ typedef struct pglist_data {
 	unsigned long numa_threshold;
 	unsigned long numa_threshold_demoted;
 	unsigned long numa_threshold_hot_demoted;
+
+	struct page *promote_pages[NUMA_BALANCING_PROMOTE_PAGES_MAX];
+	unsigned int promote_pages_head;
+	unsigned int promote_pages_tail;
+	spinlock_t promote_pages_lock;
+
+	struct work_struct *promote_pages_work;
 #endif
 	/* Fields commonly accessed by the page reclaim scanner */
 
