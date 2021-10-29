@@ -1568,6 +1568,9 @@ static void numa_migration_adjust_threshold(struct pglist_data *pgdat,
 		     nr_demoted - pgdat->numa_threshold_demoted)) {
 			th = min(th * 9 / 10, th - 1);
 			th = max(th, 1UL);
+		} else if (diff_cand < ref_cand * 2 / 10) {
+			th = max(th * 15 / 10, th + 10);
+			th = min(th, ref_th * 2);
 		} else if (diff_cand < ref_cand * 9 / 10) {
 			th = max(th * 11 / 10, th + 1);
 			th = min(th, ref_th * 2);
