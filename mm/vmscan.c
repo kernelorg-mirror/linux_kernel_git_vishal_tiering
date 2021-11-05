@@ -1354,11 +1354,11 @@ static unsigned int demote_page_list(struct list_head *demote_pages,
 			    &nr_succeeded);
 
 	if (current_is_kswapd())
-		__count_vm_events(PGDEMOTE_KSWAPD, nr_succeeded);
+		mod_node_page_state(pgdat, PGDEMOTE_KSWAPD, nr_succeeded);
 	else
-		__count_vm_events(PGDEMOTE_DIRECT, nr_succeeded);
+		mod_node_page_state(pgdat, PGDEMOTE_DIRECT, nr_succeeded);
 	if (file_lru)
-		__count_vm_events(PGDEMOTE_FILE, nr_succeeded);
+		mod_node_page_state(pgdat, PGDEMOTE_FILE, nr_succeeded);
 
 	return nr_succeeded;
 }
@@ -1746,8 +1746,8 @@ retry:
 			 * which lru it goes. So we don't bother checking
 			 * PageDirty here.
 			 */
-			count_vm_event(PGLAZYFREED);
-			count_memcg_page_event(page, PGLAZYFREED);
+			inc_node_page_state(page, PGLAZYFREED);
+			mod_memcg_state(page_memcg(page), PGLAZYFREED, 1);
 		} else if (!mapping || !__remove_mapping(mapping, page, true,
 							 sc->target_mem_cgroup))
 			goto keep_locked;
@@ -1789,7 +1789,7 @@ activate_locked:
 			int type = page_is_file_lru(page);
 			SetPageActive(page);
 			stat->nr_activate[type] += nr_pages;
-			count_memcg_page_event(page, PGACTIVATE);
+			mod_memcg_state(page_memcg(page), PGACTIVATE, 1);
 		}
 keep_locked:
 		unlock_page(page);
@@ -1816,7 +1816,7 @@ keep:
 	free_unref_page_list(&free_pages);
 
 	list_splice(&ret_pages, page_list);
-	count_vm_events(PGACTIVATE, pgactivate);
+	mod_node_page_state(pgdat, PGACTIVATE, pgactivate);
 
 	return nr_reclaimed;
 }
@@ -2247,7 +2247,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	unsigned long nr_taken;
 	struct reclaim_stat stat;
 	bool file = is_file_lru(lru);
-	enum vm_event_item item;
+	enum node_stat_item item;
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 	bool stalled = false;
 
@@ -2274,8 +2274,8 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
 	item = current_is_kswapd() ? PGSCAN_KSWAPD : PGSCAN_DIRECT;
 	if (!cgroup_reclaim(sc))
-		__count_vm_events(item, nr_scanned);
-	__count_memcg_events(lruvec_memcg(lruvec), item, nr_scanned);
+		__mod_node_page_state(pgdat, item, nr_scanned);
+	__mod_memcg_state(lruvec_memcg(lruvec), item, nr_scanned);
 	__count_vm_events(PGSCAN_ANON + file, nr_scanned);
 
 	spin_unlock_irq(&lruvec->lru_lock);
@@ -2291,8 +2291,8 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, -nr_taken);
 	item = current_is_kswapd() ? PGSTEAL_KSWAPD : PGSTEAL_DIRECT;
 	if (!cgroup_reclaim(sc))
-		__count_vm_events(item, nr_reclaimed);
-	__count_memcg_events(lruvec_memcg(lruvec), item, nr_reclaimed);
+		__mod_node_page_state(pgdat, item, nr_reclaimed);
+	__mod_memcg_state(lruvec_memcg(lruvec), item, nr_reclaimed);
 	__count_vm_events(PGSTEAL_ANON + file, nr_reclaimed);
 	spin_unlock_irq(&lruvec->lru_lock);
 
@@ -2372,8 +2372,8 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
 
 	if (!cgroup_reclaim(sc))
-		__count_vm_events(PGREFILL, nr_scanned);
-	__count_memcg_events(lruvec_memcg(lruvec), PGREFILL, nr_scanned);
+		__mod_node_page_state(pgdat, PGREFILL, nr_scanned);
+	__mod_memcg_state(lruvec_memcg(lruvec), PGREFILL, nr_scanned);
 
 	spin_unlock_irq(&lruvec->lru_lock);
 
@@ -2428,8 +2428,8 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	/* Keep all free pages in l_active list */
 	list_splice(&l_inactive, &l_active);
 
-	__count_vm_events(PGDEACTIVATE, nr_deactivate);
-	__count_memcg_events(lruvec_memcg(lruvec), PGDEACTIVATE, nr_deactivate);
+	__mod_node_page_state(pgdat, PGDEACTIVATE, nr_deactivate);
+	__mod_memcg_state(lruvec_memcg(lruvec), PGDEACTIVATE, nr_deactivate);
 
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, -nr_taken);
 	spin_unlock_irq(&lruvec->lru_lock);
@@ -3975,7 +3975,7 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int highest_zoneidx)
 	psi_memstall_enter(&pflags);
 	__fs_reclaim_acquire(_THIS_IP_);
 
-	count_vm_event(PAGEOUTRUN);
+	inc_node_state(pgdat, PAGEOUTRUN);
 
 	/*
 	 * Account for the reclaim boost. Note that the zone boost is left in
@@ -4273,9 +4273,9 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int alloc_order, int reclaim_o
 		set_pgdat_percpu_threshold(pgdat, calculate_pressure_threshold);
 	} else {
 		if (remaining)
-			count_vm_event(KSWAPD_LOW_WMARK_HIT_QUICKLY);
+			inc_node_state(pgdat, KSWAPD_LOW_WMARK_HIT_QUICKLY);
 		else
-			count_vm_event(KSWAPD_HIGH_WMARK_HIT_QUICKLY);
+			inc_node_state(pgdat, KSWAPD_HIGH_WMARK_HIT_QUICKLY);
 	}
 	finish_wait(&pgdat->kswapd_wait, &wait);
 }
